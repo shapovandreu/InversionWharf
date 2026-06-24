@@ -1,0 +1,403 @@
+openapi: "3.1.0"
+info:
+  title: InversionWharf — Agent Gateway API
+  description: |
+    API для агент-апплайансов. Все эндпоинты требуют mTLS (клиентский сертификат,
+    выданный Vault PKI при enrollment). agent-gateway терминирует mTLS, проверяет
+    идентичность агента и форвардит запрос во внутренние сервисы с внутренним JWT.
+
+    Базовый URL: `https://agent-gateway.vendor.example.com`
+  version: "1.0.0"
+  contact:
+    name: InversionWharf Platform Team
+
+servers:
+  - url: https://agent-gateway.vendor.example.com
+    description: Production
+
+security:
+  - mtls: []
+
+paths:
+
+  /v1/enroll:
+    post:
+      summary: Регистрация агента (enrollment)
+      description: |
+        Одноразовое действие при первом старте. Агент предъявляет enrollment-токен
+        (из персонализированного installer) и CSR. Получает mTLS-сертификат и
+        robot-credentials для Harbor. Токен переходит в статус `Used`.
+      operationId: enroll
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EnrollRequest"
+      responses:
+        "200":
+          description: Enrollment успешен
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnrollResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          description: Токен уже был использован
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "/problems/enrollment-token-already-used"
+                title: "Enrollment token already used"
+                status: 409
+        "410":
+          description: Токен истёк
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
+  /v1/heartbeat:
+    post:
+      summary: Heartbeat агента
+      operationId: heartbeat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HeartbeatRequest"
+      responses:
+        "204":
+          description: Heartbeat принят
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1/products:
+    get:
+      summary: Список доступных продуктов и релизов
+      description: |
+        Возвращает продукты, на которые у организации/агента есть действующий грант,
+        с деталями последнего релиза, релиз-ноутами, compose-шаблоном, схемой конфига
+        и образами. Поле `stale: true` означает деградацию — данные из кэша при недоступности catalog-service.
+      operationId: getAvailableProducts
+      responses:
+        "200":
+          description: Список доступного
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AvailableProductsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: У агента нет ни одного действующего гранта
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "503":
+          description: Circuit breaker открыт, кэш отсутствует
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
+  /v1/installations:
+    post:
+      summary: Отчёт об установках (телеметрия)
+      description: |
+        Агент отчитывается о фактически установленных продуктах и их состоянии.
+        Идемпотентно по `(agentId, productId)` — повторный вызов обновляет срез.
+      operationId: reportInstallations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InstallationReport"
+      responses:
+        "204":
+          description: Отчёт принят
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1/licenses/lease:
+    post:
+      summary: Получение / продление лицензионного лиза
+      description: |
+        license-sidecar продукта запрашивает лиз через LicenseAgent демона.
+        Лиз выдаётся только при наличии действующего гранта. Возвращает
+        подписанный JWT-лиз (короткий TTL) с `graceUntil`.
+      operationId: requestLicense
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LeaseRequest"
+      responses:
+        "200":
+          description: Лиз выдан
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LeaseResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Грант отсутствует или отозван (LICENSE_DENIED)
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "/problems/license-denied"
+                title: "License Denied"
+                status: 403
+                code: "LICENSE_DENIED"
+                detail: "No active grant found for product invopay and agent a1b2c3"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+components:
+
+  securitySchemes:
+    mtls:
+      type: mutualTLS
+      description: Клиентский сертификат, выданный Vault PKI при enrollment
+
+  responses:
+    BadRequest:
+      description: Ошибка валидации
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Unauthorized:
+      description: Невалидный или отозванный mTLS-сертификат
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    ServiceUnavailable:
+      description: Circuit breaker открыт
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+
+  schemas:
+
+    EnrollRequest:
+      type: object
+      required: [token, csr]
+      properties:
+        token:
+          type: string
+          description: Enrollment-токен из персонализированного installer
+        csr:
+          type: string
+          format: byte
+          description: Certificate Signing Request (PEM, base64)
+
+    EnrollResponse:
+      type: object
+      properties:
+        agentId:
+          type: string
+          format: uuid
+        certificate:
+          type: string
+          description: Выданный mTLS-сертификат (PEM)
+        caBundle:
+          type: string
+          description: CA-цепочка для верификации (PEM)
+        registryCredentials:
+          $ref: "#/components/schemas/RegistryCredentials"
+
+    RegistryCredentials:
+      type: object
+      properties:
+        registry:
+          type: string
+          example: "harbor.vendor.example.com"
+        username:
+          type: string
+        password:
+          type: string
+          description: Robot-пароль Harbor (хранить в keychain/файловой системе агента)
+
+    HeartbeatRequest:
+      type: object
+      required: [agentId, timestamp]
+      properties:
+        agentId:
+          type: string
+          format: uuid
+        timestamp:
+          type: string
+          format: date-time
+        applianceVersion:
+          type: string
+          example: "1.3.2"
+        metrics:
+          type: object
+          additionalProperties: true
+          description: Произвольные метрики хоста (опционально)
+
+    AvailableProductsResponse:
+      type: object
+      properties:
+        agentId:
+          type: string
+          format: uuid
+        generatedAt:
+          type: string
+          format: date-time
+        stale:
+          type: boolean
+          description: true — данные из кэша при деградации catalog-service
+        products:
+          type: array
+          items:
+            $ref: "#/components/schemas/AvailableProduct"
+
+    AvailableProduct:
+      type: object
+      properties:
+        productId:
+          type: string
+          format: uuid
+        productSlug:
+          type: string
+          example: "invopay"
+        channel:
+          type: string
+          enum: [stable, beta, edge]
+        latestRelease:
+          type: string
+          description: semver
+          example: "2.3.1"
+        releaseNotes:
+          type: array
+          items:
+            type: string
+          example:
+            - "Прямая маршрутизация переводов через корсчета банков, минуя СБП."
+            - "Поддержка формата сообщений ISO 20022 (pacs.008 / pacs.002)."
+        composeTemplate:
+          type: string
+          description: Docker Compose шаблон (YAML)
+        configSchema:
+          type: object
+          description: JSON Schema для локального конфига продукта
+          example:
+            BANK_BIC:
+              type: string
+              required: true
+        images:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProductImage"
+
+    ProductImage:
+      type: object
+      required: [repo, digest]
+      properties:
+        repo:
+          type: string
+          example: "harbor.vendor.example.com/invopay/gateway"
+        tag:
+          type: string
+          example: "2.3.1"
+        digest:
+          type: string
+          example: "sha256:abc123..."
+        signature:
+          type: string
+          description: Cosign-подпись (OCI annotation или ссылка)
+
+    InstallationReport:
+      type: object
+      required: [productId, version, health]
+      properties:
+        productId:
+          type: string
+          format: uuid
+        version:
+          type: string
+          example: "2.3.1"
+        health:
+          type: string
+          enum: [Running, Failed, Updating, Stopped]
+        licenseState:
+          type: string
+          enum: [Valid, Grace, HardStop]
+        graceUntil:
+          type: string
+          format: date-time
+          description: Заполнено только при licenseState=Grace
+
+    LeaseRequest:
+      type: object
+      required: [productId]
+      properties:
+        productId:
+          type: string
+          format: uuid
+        channel:
+          type: string
+          enum: [stable, beta, edge]
+
+    LeaseResponse:
+      type: object
+      properties:
+        leaseToken:
+          type: string
+          description: Подписанный JWT-лиз (JWS, Ed25519/RS256)
+        exp:
+          type: string
+          format: date-time
+          description: Истечение лиза (короткий TTL, 24–72 ч)
+        graceUntil:
+          type: string
+          format: date-time
+          description: Граница льготного периода (exp + grace_days)
+
+    Problem:
+      description: RFC 7807 problem+json
+      type: object
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri
+        traceId:
+          type: string
+        code:
+          type: string
+          description: Машиночитаемый код (для агентского контура)
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+              message:
+                type: string

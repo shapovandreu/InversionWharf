@@ -1,0 +1,909 @@
+openapi: "3.1.0"
+info:
+  title: InversionWharf — Operator Gateway API
+  description: |
+    API для операторов вендора и администраторов организаций.
+    Аутентификация: OAuth2/OIDC (JWT Bearer). Роли: `OPERATOR`, `TENANT_ADMIN`.
+    Ошибки: RFC 7807 `application/problem+json`.
+
+    Базовый URL: `https://api.vendor.example.com`
+  version: "1.0.0"
+
+servers:
+  - url: https://api.vendor.example.com
+
+security:
+  - bearerAuth: []
+
+paths:
+
+  # ─── Catalog ──────────────────────────────────────────────────────────────────
+
+  /api/products:
+    get:
+      tags: [Catalog]
+      summary: Список продуктов
+      operationId: listProducts
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Product"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+    post:
+      tags: [Catalog]
+      summary: Создать продукт
+      operationId: createProduct
+      security:
+        - bearerAuth: [OPERATOR]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProductRequest"
+      responses:
+        "201":
+          description: Продукт создан
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          description: Продукт со слагом уже существует
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
+  /api/products/{productId}/releases:
+    parameters:
+      - $ref: "#/components/parameters/productId"
+    get:
+      tags: [Catalog]
+      summary: Список релизов продукта
+      operationId: listReleases
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Release"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    post:
+      tags: [Catalog]
+      summary: Опубликовать релиз
+      description: |
+        Публикует новый неизменяемый релиз. Проверяет semver, валидность канала,
+        синтаксис compose-шаблона и схемы конфига, наличие digest у образов.
+        При успехе публикует событие `catalog.release.published` в Kafka.
+      operationId: publishRelease
+      security:
+        - bearerAuth: [OPERATOR]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishReleaseRequest"
+      responses:
+        "201":
+          description: Релиз опубликован
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Release"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          description: Версия уже существует
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "422":
+          description: Невалидный compose-шаблон, схема конфига или отсутствует digest
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
+  /api/releases/{releaseId}/promote:
+    parameters:
+      - $ref: "#/components/parameters/releaseId"
+    post:
+      tags: [Catalog]
+      summary: Продвинуть релиз в канал
+      operationId: promoteRelease
+      security:
+        - bearerAuth: [OPERATOR]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [channel]
+              properties:
+                channel:
+                  type: string
+                  enum: [stable, beta, edge]
+      responses:
+        "200":
+          description: Продвинут
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Release"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ─── Fleet ────────────────────────────────────────────────────────────────────
+
+  /api/tenants:
+    get:
+      tags: [Fleet]
+      summary: Список организаций
+      operationId: listTenants
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Tenant"
+    post:
+      tags: [Fleet]
+      summary: Создать организацию
+      operationId: createTenant
+      security:
+        - bearerAuth: [OPERATOR]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTenantRequest"
+      responses:
+        "201":
+          description: Создана
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+
+  /api/agents:
+    get:
+      tags: [Fleet]
+      summary: Список агентов
+      operationId: listAgents
+      parameters:
+        - name: tenantId
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Agent"
+
+    post:
+      tags: [Fleet]
+      summary: Зарегистрировать агента и получить персонализированный installer
+      description: |
+        Создаёт агента и возвращает персонализированный подписанный installer
+        с вшитым одноразовым enrollment-токеном (ADR-0004).
+      operationId: createAgent
+      security:
+        - bearerAuth: [OPERATOR]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAgentRequest"
+      responses:
+        "201":
+          description: Агент создан
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateAgentResponse"
+
+  /api/agents/{agentId}:
+    parameters:
+      - $ref: "#/components/parameters/agentId"
+    get:
+      tags: [Fleet]
+      summary: Детали агента
+      operationId: getAgent
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Agent"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ─── Grants ───────────────────────────────────────────────────────────────────
+
+  /api/tenants/{tenantId}/grants:
+    parameters:
+      - $ref: "#/components/parameters/tenantId"
+    get:
+      tags: [Grants]
+      summary: Гранты организации
+      operationId: listGrants
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Grant"
+
+    post:
+      tags: [Grants]
+      summary: Выдать грант
+      operationId: createGrant
+      security:
+        - bearerAuth: [OPERATOR]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateGrantRequest"
+      responses:
+        "201":
+          description: Грант выдан
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Grant"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/grants/{grantId}:
+    parameters:
+      - $ref: "#/components/parameters/grantId"
+    delete:
+      tags: [Grants]
+      summary: Отозвать грант
+      operationId: revokeGrant
+      security:
+        - bearerAuth: [OPERATOR]
+      responses:
+        "204":
+          description: Отозван
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ─── Licenses ─────────────────────────────────────────────────────────────────
+
+  /api/products/{productId}/license-policy:
+    parameters:
+      - $ref: "#/components/parameters/productId"
+    get:
+      tags: [Licenses]
+      summary: Политика лицензии продукта
+      operationId: getLicensePolicy
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LicensePolicy"
+    put:
+      tags: [Licenses]
+      summary: Задать политику лицензии
+      operationId: setLicensePolicy
+      security:
+        - bearerAuth: [OPERATOR]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LicensePolicy"
+      responses:
+        "200":
+          description: Обновлено
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LicensePolicy"
+
+  /api/licenses/{licenseId}/revoke:
+    parameters:
+      - $ref: "#/components/parameters/licenseId"
+    post:
+      tags: [Licenses]
+      summary: Срочно отозвать лиз
+      operationId: revokeLicense
+      security:
+        - bearerAuth: [OPERATOR]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+      responses:
+        "204":
+          description: Отозван
+
+  /api/licenses/grace:
+    get:
+      tags: [Licenses]
+      summary: Отчёт «Льготный период»
+      description: |
+        Список продуктов в состоянии Grace: организация, продукт, агент, сколько дней до HardStop.
+      operationId: getLicenseGraceReport
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GraceReportItem"
+
+  # ─── Telemetry ────────────────────────────────────────────────────────────────
+
+  /api/fleet/health:
+    get:
+      tags: [Telemetry]
+      summary: Здоровье флота
+      operationId: getFleetHealth
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FleetHealth"
+
+  /api/agents/{agentId}/installations:
+    parameters:
+      - $ref: "#/components/parameters/agentId"
+    get:
+      tags: [Telemetry]
+      summary: Установки на агенте
+      operationId: getAgentInstallations
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/InstallationSnapshot"
+
+  /api/audit:
+    get:
+      tags: [Telemetry]
+      summary: Аудит-журнал
+      operationId: getAuditLog
+      parameters:
+        - name: tenantId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: action
+          in: query
+          schema:
+            type: string
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 0
+        - name: size
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditPage"
+
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    productId:
+      name: productId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    releaseId:
+      name: releaseId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    tenantId:
+      name: tenantId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    agentId:
+      name: agentId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    grantId:
+      name: grantId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    licenseId:
+      name: licenseId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    BadRequest:
+      description: Ошибка валидации
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Unauthorized:
+      description: Невалидный или просроченный токен
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    NotFound:
+      description: Сущность не найдена
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+
+  schemas:
+
+    Problem:
+      type: object
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+        traceId:
+          type: string
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+
+    Product:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+          example: "invopay"
+        name:
+          type: string
+        description:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    CreateProductRequest:
+      type: object
+      required: [slug, name]
+      properties:
+        slug:
+          type: string
+          pattern: '^[a-z0-9-]+$'
+        name:
+          type: string
+        description:
+          type: string
+
+    Release:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        productId:
+          type: string
+          format: uuid
+        version:
+          type: string
+          description: semver
+          example: "2.3.1"
+        channel:
+          type: string
+          enum: [stable, beta, edge]
+        status:
+          type: string
+          enum: [Draft, Published, ChannelPromoted, Deprecated]
+        releaseNotes:
+          type: array
+          items:
+            type: string
+        images:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReleaseImage"
+        publishedAt:
+          type: string
+          format: date-time
+
+    ReleaseImage:
+      type: object
+      required: [repo, digest]
+      properties:
+        repo:
+          type: string
+        tag:
+          type: string
+        digest:
+          type: string
+        signatureRef:
+          type: string
+
+    PublishReleaseRequest:
+      type: object
+      required: [version, channel, composeTemplate, images]
+      properties:
+        version:
+          type: string
+          description: semver (например, 2.3.1)
+        channel:
+          type: string
+          enum: [stable, beta, edge]
+        composeTemplate:
+          type: string
+          description: Docker Compose YAML-шаблон
+        configSchema:
+          type: object
+          description: JSON Schema для локального конфига
+        releaseNotes:
+          type: array
+          items:
+            type: string
+        sbomRef:
+          type: string
+        images:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/ReleaseImage"
+
+    Tenant:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        inn:
+          type: string
+        status:
+          type: string
+          enum: [Active, Suspended]
+        createdAt:
+          type: string
+          format: date-time
+
+    CreateTenantRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        inn:
+          type: string
+
+    Agent:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        hostname:
+          type: string
+        applianceVersion:
+          type: string
+        status:
+          type: string
+          enum: [Created, Enrolled, Active, Stale, Decommissioned]
+        lastSeen:
+          type: string
+          format: date-time
+
+    CreateAgentRequest:
+      type: object
+      required: [tenantId, hostname]
+      properties:
+        tenantId:
+          type: string
+          format: uuid
+        hostname:
+          type: string
+
+    CreateAgentResponse:
+      type: object
+      properties:
+        agentId:
+          type: string
+          format: uuid
+        installerDownloadUrl:
+          type: string
+          format: uri
+          description: Ссылка на персонализированный подписанный installer (токен вшит)
+        installerExpiresAt:
+          type: string
+          format: date-time
+          description: Ссылка на скачивание активна до этого момента
+
+    Grant:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        productId:
+          type: string
+          format: uuid
+        agentId:
+          type: string
+          format: uuid
+          nullable: true
+          description: null = грант на всю организацию
+        channel:
+          type: string
+          enum: [stable, beta, edge]
+        status:
+          type: string
+          enum: [Active, Expiring, Expired, Revoked]
+        expiresAt:
+          type: string
+          format: date-time
+
+    CreateGrantRequest:
+      type: object
+      required: [productId, channel, expiresAt]
+      properties:
+        productId:
+          type: string
+          format: uuid
+        agentId:
+          type: string
+          format: uuid
+          nullable: true
+        channel:
+          type: string
+          enum: [stable, beta, edge]
+        expiresAt:
+          type: string
+          format: date-time
+
+    LicensePolicy:
+      type: object
+      properties:
+        leaseTtlHours:
+          type: integer
+          minimum: 1
+          maximum: 168
+          default: 24
+          description: TTL лиза в часах
+        graceDays:
+          type: integer
+          minimum: 0
+          maximum: 30
+          default: 7
+          description: Льготный период в днях
+        hardStopMode:
+          type: string
+          enum: [deny, read-only, shutdown]
+          default: read-only
+        maxInstances:
+          type: integer
+          minimum: 1
+          nullable: true
+
+    GraceReportItem:
+      type: object
+      properties:
+        tenantId:
+          type: string
+          format: uuid
+        tenantName:
+          type: string
+        productId:
+          type: string
+          format: uuid
+        productSlug:
+          type: string
+        agentId:
+          type: string
+          format: uuid
+        agentHostname:
+          type: string
+        graceStartedAt:
+          type: string
+          format: date-time
+        graceUntil:
+          type: string
+          format: date-time
+        daysRemaining:
+          type: integer
+          description: Дней до HardStop (может быть 0 в последний день)
+
+    FleetHealth:
+      type: object
+      properties:
+        totalAgents:
+          type: integer
+        activeAgents:
+          type: integer
+        staleAgents:
+          type: integer
+        totalInstallations:
+          type: integer
+        healthyInstallations:
+          type: integer
+        failedInstallations:
+          type: integer
+        graceInstallations:
+          type: integer
+        hardStopInstallations:
+          type: integer
+
+    InstallationSnapshot:
+      type: object
+      properties:
+        productId:
+          type: string
+          format: uuid
+        productSlug:
+          type: string
+        version:
+          type: string
+        health:
+          type: string
+          enum: [Running, Failed, Updating, Stopped]
+        licenseState:
+          type: string
+          enum: [Valid, Grace, HardStop]
+        graceUntil:
+          type: string
+          format: date-time
+          nullable: true
+        reportedAt:
+          type: string
+          format: date-time
+
+    AuditPage:
+      type: object
+      properties:
+        content:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditRecord"
+        totalElements:
+          type: integer
+        page:
+          type: integer
+        size:
+          type: integer
+
+    AuditRecord:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+          nullable: true
+        agentId:
+          type: string
+          format: uuid
+          nullable: true
+        actor:
+          type: string
+        action:
+          type: string
+          example: "grant.created"
+        details:
+          type: object
+          additionalProperties: true
+        occurredAt:
+          type: string
+          format: date-time

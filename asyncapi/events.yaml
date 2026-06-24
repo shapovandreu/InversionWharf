@@ -1,0 +1,440 @@
+asyncapi: "3.0.0"
+info:
+  title: InversionWharf — Event Bus (Kafka)
+  description: |
+    AsyncAPI-контракт для всех Kafka-топиков платформы InversionWharf.
+    Брокер: Apache Kafka 3.x, формат сообщений: JSON, кодировка: UTF-8.
+    Схема регистрируется в Confluent Schema Registry (Avro-совместимость опциональна).
+  version: "1.0.0"
+  contact:
+    name: InversionWharf Platform Team
+
+servers:
+  kafka-production:
+    host: kafka.internal.vendor.example.com:9092
+    protocol: kafka-secure
+    description: Production Kafka cluster (SASL/TLS)
+    security:
+      - $ref: "#/components/securitySchemes/saslPlain"
+
+defaultContentType: application/json
+
+channels:
+
+  fleet.heartbeat:
+    address: fleet.heartbeat
+    description: |
+      Агент публикует heartbeat каждые 60 секунд через agent-gateway.
+      Consumption: telemetry-service обновляет статус агента (lastSeen) и
+      сохраняет метрики хоста. fleet-service отслеживает живость агентов.
+    messages:
+      AgentHeartbeat:
+        $ref: "#/components/messages/AgentHeartbeat"
+    bindings:
+      kafka:
+        partitions: 12
+        replicas: 3
+        configs:
+          retention.ms: "604800000"   # 7 days
+          cleanup.policy: delete
+
+  agent.installation.reported:
+    address: agent.installation.reported
+    description: |
+      Агент отчитывается о фактически установленных продуктах (health, version,
+      licenseState). Consumption: telemetry-service сохраняет снэпшот.
+      entitlement-service сверяет статус лицензии.
+    messages:
+      InstallationReported:
+        $ref: "#/components/messages/InstallationReported"
+    bindings:
+      kafka:
+        partitions: 12
+        replicas: 3
+        configs:
+          retention.ms: "604800000"   # 7 days
+          cleanup.policy: delete
+
+  catalog.release.published:
+    address: catalog.release.published
+    description: |
+      catalog-service публикует событие при появлении нового релиза продукта
+      или его продвижении между каналами. Consumption: agent-gateway инвалидирует
+      кэш продуктов; fleet-service обновляет снэпшоты для агентов.
+    messages:
+      ReleasePublished:
+        $ref: "#/components/messages/ReleasePublished"
+    bindings:
+      kafka:
+        partitions: 6
+        replicas: 3
+        configs:
+          retention.ms: "2592000000"  # 30 days
+          cleanup.policy: delete
+
+  entitlement.grant.status.changed:
+    address: entitlement.grant.status.changed
+    description: |
+      entitlement-service публикует при переходе гранта в Expired или Revoked.
+      Consumers:
+        - fleet-service: сужает scope Harbor robot account (убирает доступ к pull)
+        - agent (косвенно, через polling /v1/products): обнаруживает исчезнувший
+          грант и запускает CleanupManager (docker image rm)
+      Ключ партиционирования: tenantId.
+    messages:
+      GrantStatusChanged:
+        $ref: "#/components/messages/GrantStatusChanged"
+    bindings:
+      kafka:
+        partitions: 6
+        replicas: 3
+        configs:
+          retention.ms: "2592000000"  # 30 days
+          cleanup.policy: delete
+
+  audit.operator.action:
+    address: audit.operator.action
+    description: |
+      Все сервисы Control Plane публикуют аудит-события при значимых действиях
+      операторов и системных переходах. Consumption: audit-service (или telemetry-service)
+      записывает в immutable audit log.
+    messages:
+      OperatorAction:
+        $ref: "#/components/messages/OperatorAction"
+    bindings:
+      kafka:
+        partitions: 6
+        replicas: 3
+        configs:
+          retention.ms: "31536000000"  # 365 days (compliance)
+          cleanup.policy: delete
+
+operations:
+
+  publishHeartbeat:
+    action: send
+    channel:
+      $ref: "#/channels/fleet.heartbeat"
+    description: agent-gateway публикует heartbeat от агента
+    bindings:
+      kafka:
+        groupId:
+          type: string
+          const: "agent-gateway-heartbeat-producer"
+
+  consumeHeartbeat:
+    action: receive
+    channel:
+      $ref: "#/channels/fleet.heartbeat"
+    description: telemetry-service и fleet-service потребляют heartbeat
+    bindings:
+      kafka:
+        groupId:
+          type: string
+          enum: ["telemetry-service-cg", "fleet-service-cg"]
+
+  publishInstallation:
+    action: send
+    channel:
+      $ref: "#/channels/agent.installation.reported"
+    description: agent-gateway публикует отчёт об установке
+
+  consumeInstallation:
+    action: receive
+    channel:
+      $ref: "#/channels/agent.installation.reported"
+    description: telemetry-service и entitlement-service потребляют отчёт
+
+  publishRelease:
+    action: send
+    channel:
+      $ref: "#/channels/catalog.release.published"
+    description: catalog-service публикует новый релиз
+
+  consumeRelease:
+    action: receive
+    channel:
+      $ref: "#/channels/catalog.release.published"
+    description: agent-gateway (cache invalidation) и fleet-service потребляют релиз
+
+  publishGrantStatusChanged:
+    action: send
+    channel:
+      $ref: "#/channels/entitlement.grant.status.changed"
+    description: entitlement-service публикует смену статуса гранта
+
+  consumeGrantStatusChanged:
+    action: receive
+    channel:
+      $ref: "#/channels/entitlement.grant.status.changed"
+    description: fleet-service потребляет → обновляет Harbor scope
+
+  publishAuditAction:
+    action: send
+    channel:
+      $ref: "#/channels/audit.operator.action"
+    description: Любой сервис CP публикует аудит-событие
+
+  consumeAuditAction:
+    action: receive
+    channel:
+      $ref: "#/channels/audit.operator.action"
+    description: audit/telemetry-service записывает в audit log
+
+components:
+
+  securitySchemes:
+    saslPlain:
+      type: plain
+      description: SASL/PLAIN credentials (TLS обязателен)
+
+  messages:
+
+    AgentHeartbeat:
+      name: AgentHeartbeat
+      title: Agent Heartbeat
+      summary: Периодический сигнал живости от агента
+      contentType: application/json
+      headers:
+        type: object
+        properties:
+          correlationId:
+            type: string
+            format: uuid
+          sourceService:
+            type: string
+            const: "agent-gateway"
+      payload:
+        $ref: "#/components/schemas/AgentHeartbeatPayload"
+
+    InstallationReported:
+      name: InstallationReported
+      title: Installation Reported
+      summary: Отчёт об установленных продуктах
+      contentType: application/json
+      headers:
+        type: object
+        properties:
+          correlationId:
+            type: string
+            format: uuid
+          sourceService:
+            type: string
+            const: "agent-gateway"
+      payload:
+        $ref: "#/components/schemas/InstallationReportedPayload"
+
+    ReleasePublished:
+      name: ReleasePublished
+      title: Release Published
+      summary: Новый релиз продукта опубликован или продвинут между каналами
+      contentType: application/json
+      headers:
+        type: object
+        properties:
+          correlationId:
+            type: string
+            format: uuid
+          sourceService:
+            type: string
+            const: "catalog-service"
+      payload:
+        $ref: "#/components/schemas/ReleasePublishedPayload"
+
+    GrantStatusChanged:
+      name: GrantStatusChanged
+      title: Grant Status Changed
+      summary: Грант перешёл в Expired или Revoked
+      contentType: application/json
+      headers:
+        type: object
+        properties:
+          correlationId:
+            type: string
+            format: uuid
+          sourceService:
+            type: string
+            const: "entitlement-service"
+      payload:
+        $ref: "#/components/schemas/GrantStatusChangedPayload"
+
+    OperatorAction:
+      name: OperatorAction
+      title: Operator Audit Action
+      summary: Значимое действие оператора или системное событие
+      contentType: application/json
+      headers:
+        type: object
+        properties:
+          correlationId:
+            type: string
+            format: uuid
+          sourceService:
+            type: string
+            description: Сервис-источник (auth-service, catalog-service, ...)
+      payload:
+        $ref: "#/components/schemas/OperatorActionPayload"
+
+  schemas:
+
+    AgentHeartbeatPayload:
+      type: object
+      required: [agentId, tenantId, timestamp]
+      properties:
+        agentId:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        timestamp:
+          type: string
+          format: date-time
+        applianceVersion:
+          type: string
+          example: "1.3.2"
+        metrics:
+          type: object
+          additionalProperties: true
+          description: Произвольные метрики хоста (CPU, RAM, disk)
+          example:
+            cpu_usage_pct: 12.3
+            mem_used_mb: 512
+            disk_free_gb: 42.1
+
+    InstallationReportedPayload:
+      type: object
+      required: [agentId, tenantId, productId, version, health, timestamp]
+      properties:
+        agentId:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        productId:
+          type: string
+          format: uuid
+        version:
+          type: string
+          example: "2.3.1"
+        health:
+          type: string
+          enum: [Running, Failed, Updating, Stopped]
+        licenseState:
+          type: string
+          enum: [Valid, Grace, HardStop]
+        graceUntil:
+          type: string
+          format: date-time
+          description: Заполнено только при licenseState=Grace
+        timestamp:
+          type: string
+          format: date-time
+
+    ReleasePublishedPayload:
+      type: object
+      required: [productId, productSlug, version, channel, publishedAt]
+      properties:
+        productId:
+          type: string
+          format: uuid
+        productSlug:
+          type: string
+          example: "invopay"
+        version:
+          type: string
+          example: "2.4.0"
+        channel:
+          type: string
+          enum: [stable, beta, edge]
+        previousVersion:
+          type: string
+          description: Предыдущий релиз в этом канале (опционально)
+          example: "2.3.1"
+        publishedAt:
+          type: string
+          format: date-time
+        images:
+          type: array
+          description: Docker-образы нового релиза
+          items:
+            type: object
+            properties:
+              repo:
+                type: string
+              tag:
+                type: string
+              digest:
+                type: string
+
+    GrantStatusChangedPayload:
+      type: object
+      required: [grantId, tenantId, productId, newStatus, changedAt]
+      properties:
+        grantId:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        productId:
+          type: string
+          format: uuid
+        agentId:
+          type: string
+          format: uuid
+          description: Заполнено если грант привязан к конкретному агенту
+        newStatus:
+          type: string
+          enum: [Expired, Revoked]
+        previousStatus:
+          type: string
+          enum: [Active, Suspended]
+        reason:
+          type: string
+          description: Причина отзыва (для Revoked)
+          example: "Non-payment"
+        changedAt:
+          type: string
+          format: date-time
+
+    OperatorActionPayload:
+      type: object
+      required: [eventId, action, actorId, actorType, timestamp]
+      properties:
+        eventId:
+          type: string
+          format: uuid
+        action:
+          type: string
+          description: Машиночитаемый код действия
+          example: "GRANT_REVOKED"
+        actorId:
+          type: string
+          format: uuid
+          description: ID оператора или serviceAccount
+        actorType:
+          type: string
+          enum: [operator, system]
+        resourceType:
+          type: string
+          example: "Grant"
+        resourceId:
+          type: string
+          format: uuid
+        before:
+          type: object
+          description: Состояние ресурса до действия (snapshot)
+        after:
+          type: object
+          description: Состояние ресурса после действия (snapshot)
+        ipAddress:
+          type: string
+          description: IP-адрес оператора (из JWT-клейма)
+        traceId:
+          type: string
+          description: Distributed trace ID для корреляции с логами
+        timestamp:
+          type: string
+          format: date-time

@@ -1,0 +1,277 @@
+services:
+
+  # ─── Infrastructure ──────────────────────────────────────────────────────────
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-invwharf}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme_pg_password}
+      POSTGRES_DB: ${POSTGRES_DB:-invwharf}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-invwharf}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --requirepass ${REDIS_PASSWORD:-changeme_redis}
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-changeme_redis}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      CLUSTER_ID: "EDU-INVWHARF-CLUSTER-001"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    ports:
+      - "9092:9092"
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  # ─── Spring Cloud Infrastructure ─────────────────────────────────────────────
+
+  config-server:
+    image: ${REGISTRY:-harbor.vendor.example.com}/invwharf/config-server:${VERSION:-latest}
+    build:
+      context: ./services/config-server
+      dockerfile: Dockerfile
+    environment:
+      SPRING_PROFILES_ACTIVE: native
+      SPRING_CLOUD_CONFIG_SERVER_NATIVE_SEARCH_LOCATIONS: file:/config
+    volumes:
+      - ./config:/config:ro
+    ports:
+      - "8888:8888"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8888/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  service-registry:
+    image: ${REGISTRY:-harbor.vendor.example.com}/invwharf/service-registry:${VERSION:-latest}
+    build:
+      context: ./services/service-registry
+      dockerfile: Dockerfile
+    environment:
+      SPRING_CLOUD_CONFIG_URI: http://config-server:8888
+      EUREKA_CLIENT_REGISTER_WITH_EUREKA: "false"
+      EUREKA_CLIENT_FETCH_REGISTRY: "false"
+    ports:
+      - "8761:8761"
+    depends_on:
+      config-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8761/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ─── Application Services ─────────────────────────────────────────────────────
+
+  auth-service:
+    image: ${REGISTRY:-harbor.vendor.example.com}/invwharf/auth-service:${VERSION:-latest}
+    build:
+      context: ./services/auth-service
+      dockerfile: Dockerfile
+    environment:
+      SPRING_CLOUD_CONFIG_URI: http://config-server:8888
+      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://service-registry:8761/eureka/
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-invwharf}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-invwharf}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-changeme_pg_password}
+      JWT_SECRET: ${JWT_SECRET:-changeme_jwt_secret_min32chars}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      service-registry:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  catalog-service:
+    image: ${REGISTRY:-harbor.vendor.example.com}/invwharf/catalog-service:${VERSION:-latest}
+    build:
+      context: ./services/catalog-service
+      dockerfile: Dockerfile
+    environment:
+      SPRING_CLOUD_CONFIG_URI: http://config-server:8888
+      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://service-registry:8761/eureka/
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-invwharf}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-invwharf}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-changeme_pg_password}
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:-changeme_redis}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      service-registry:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  entitlement-service:
+    image: ${REGISTRY:-harbor.vendor.example.com}/invwharf/entitlement-service:${VERSION:-latest}
+    build:
+      context: ./services/entitlement-service
+      dockerfile: Dockerfile
+    environment:
+      SPRING_CLOUD_CONFIG_URI: http://config-server:8888
+      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://service-registry:8761/eureka/
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-invwharf}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-invwharf}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-changeme_pg_password}
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      service-registry:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  license-service:
+    image: ${REGISTRY:-harbor.vendor.example.com}/invwharf/license-service:${VERSION:-latest}
+    build:
+      context: ./services/license-service
+      dockerfile: Dockerfile
+    environment:
+      SPRING_CLOUD_CONFIG_URI: http://config-server:8888
+      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://service-registry:8761/eureka/
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-invwharf}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-invwharf}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-changeme_pg_password}
+      LICENSE_SIGNING_KEY: ${LICENSE_SIGNING_PRIVATE_KEY:-changeme_license_private_key}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      service-registry:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  fleet-service:
+    image: ${REGISTRY:-harbor.vendor.example.com}/invwharf/fleet-service:${VERSION:-latest}
+    build:
+      context: ./services/fleet-service
+      dockerfile: Dockerfile
+    environment:
+      SPRING_CLOUD_CONFIG_URI: http://config-server:8888
+      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://service-registry:8761/eureka/
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-invwharf}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-invwharf}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-changeme_pg_password}
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      HARBOR_URL: ${HARBOR_URL:-https://harbor.vendor.example.com}
+      HARBOR_ADMIN_USER: ${HARBOR_ADMIN_USER:-admin}
+      HARBOR_ADMIN_PASSWORD: ${HARBOR_ADMIN_PASSWORD:-changeme_harbor_admin}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      service-registry:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ─── API Gateways ─────────────────────────────────────────────────────────────
+
+  api-gateway:
+    image: ${REGISTRY:-harbor.vendor.example.com}/invwharf/api-gateway:${VERSION:-latest}
+    build:
+      context: ./services/api-gateway
+      dockerfile: Dockerfile
+    environment:
+      SPRING_CLOUD_CONFIG_URI: http://config-server:8888
+      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://service-registry:8761/eureka/
+      JWT_SECRET: ${JWT_SECRET:-changeme_jwt_secret_min32chars}
+    ports:
+      - "8080:8080"
+    depends_on:
+      service-registry:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Note: agent-gateway (mTLS termination) is a Go service — not in this educational compose.
+  # In production: nginx/envoy terminates mTLS and proxies to internal Go service.
+
+  # ─── Frontend ─────────────────────────────────────────────────────────────────
+
+  operator-web:
+    image: ${REGISTRY:-harbor.vendor.example.com}/invwharf/operator-web:${VERSION:-latest}
+    build:
+      context: ./services/operator-web
+      dockerfile: Dockerfile
+    environment:
+      API_BASE_URL: http://api-gateway:8080
+    ports:
+      - "3000:3000"
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:
+  kafka_data:
+
+networks:
+  default:
+    name: invwharf-network
