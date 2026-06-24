@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>InversionWharf · Agent Appliance</title>
+<style>
+  :root {
+    --bg: #e8f3fc; --bg2: #f2f9fe; --panel: #ffffff; --panel2: #ecf5fd;
+    --line: #d4e6f5; --line2: #bcd9ef;
+    --text: #102234; --muted: #54708a; --faint: #88a0b5;
+    --accent: #0284c7; --accent2: #0ea5e9; --accentdim: #e0f2fe;
+    --ok: #16a34a; --warn: #d97706; --bad: #dc2626; --info: #0284c7;
+    --radius: 14px; --shadow: 0 8px 28px rgba(2,132,199,.10);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: radial-gradient(1100px 500px at 15% -10%, #cfeafb 0%, var(--bg) 55%);
+    color: var(--text); font: 14px/1.55 "Segoe UI", Roboto, system-ui, sans-serif; -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  .shell { max-width: 1120px; margin: 0 auto; padding: 0 22px 70px; }
+
+  .head { display: flex; align-items: center; gap: 14px; padding: 20px 0 18px; position: sticky; top: 0; z-index: 5;
+    background: linear-gradient(180deg, var(--bg) 75%, transparent); }
+  .logo { width: 40px; height: 40px; border-radius: 11px; flex: none;
+    background: linear-gradient(135deg, var(--accent), var(--accent2)); display: grid; place-items: center;
+    color: #fff; font-weight: 800; font-size: 20px; box-shadow: var(--shadow); }
+  .head b { font-size: 16px; }
+  .head small { display: block; color: var(--muted); font-size: 11.5px; }
+  .spacer { flex: 1; }
+  .conn { display:flex; align-items:center; gap:8px; background: #fff; border:1px solid var(--line);
+    padding: 7px 13px; border-radius: 99px; font-size:12.5px; box-shadow: var(--shadow); }
+  .pulse { width:9px; height:9px; border-radius:50%; background: var(--ok); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(22,163,74,.45)} 70%{box-shadow:0 0 0 8px rgba(22,163,74,0)} 100%{box-shadow:0 0 0 0 rgba(22,163,74,0)} }
+
+  .tabs { display:flex; gap:6px; border-bottom:1px solid var(--line); margin-bottom: 22px; }
+  .tab { padding:11px 16px; color:var(--muted); cursor:pointer; font-weight:600; border-bottom:2px solid transparent; margin-bottom:-1px; display:flex; align-items:center; gap:8px;}
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab .pill { font-size:11px; background:var(--accentdim); border:1px solid var(--line2); padding:1px 7px; border-radius:99px; }
+
+  .grid { display:grid; gap:16px; }
+  .panel { background: #fff; border:1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+  .panel.pad { padding: 18px; }
+  .ph { display:flex; align-items:center; gap:10px; padding:15px 18px; border-bottom:1px solid var(--line); }
+  .ph h3 { margin:0; font-size:14px; }
+  .pb { padding: 6px 0; }
+
+  .badge { display:inline-flex; align-items:center; gap:6px; padding:3px 9px; border-radius:999px; font-size:11.5px; font-weight:600; border:1px solid transparent; white-space:nowrap;}
+  .dot { width:7px; height:7px; border-radius:50%; display:inline-block; }
+  .b-ok{color:var(--ok);background:rgba(22,163,74,.10);border-color:rgba(22,163,74,.25)}
+  .b-warn{color:var(--warn);background:rgba(217,119,6,.10);border-color:rgba(217,119,6,.25)}
+  .b-bad{color:var(--bad);background:rgba(220,38,38,.10);border-color:rgba(220,38,38,.25)}
+  .b-info{color:var(--info);background:rgba(2,132,199,.10);border-color:rgba(2,132,199,.25)}
+  .b-mut{color:var(--muted);background:rgba(84,112,138,.08);border-color:var(--line2)}
+  .b-acc{color:var(--accent);background:rgba(14,165,233,.10);border-color:rgba(14,165,233,.30)}
+
+  .btn { background: #fff; border:1px solid var(--line2); color:var(--text); padding:9px 15px; border-radius:10px; cursor:pointer; font-weight:600; font-size:13px; display:inline-flex; align-items:center; gap:7px;}
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn.primary { background: linear-gradient(135deg, var(--accent), var(--accent2)); color:#fff; border:none; }
+  .btn.primary:hover { color:#fff; filter:brightness(1.05); }
+  .btn.sm { padding:6px 11px; font-size:12px; }
+  .btn.ghost { background:transparent; }
+  .btn:disabled { opacity:.45; cursor:not-allowed; }
+  .btn.danger { color: var(--bad); border-color: rgba(220,38,38,.35); }
+  .btn.danger:hover { color: var(--bad); border-color: var(--bad); background: rgba(220,38,38,.06); }
+
+  .mono { font-family:"JetBrains Mono", ui-monospace, Consolas, monospace; font-size:12px; }
+  .chip { font-size:11px; padding:2px 8px; border-radius:6px; background:var(--panel2); border:1px solid var(--line); color:var(--muted); }
+  .kv { display:flex; justify-content:space-between; padding:9px 0; border-bottom:1px solid rgba(212,230,245,.7); font-size:13px;}
+  .kv:last-child{border:none}
+  .kv .k{color:var(--muted)}
+
+  .pcard { padding:16px 18px; border-bottom:1px solid rgba(212,230,245,.7); }
+  .pcard:last-child{border:none}
+  .prow { display:flex; align-items:center; gap:14px; }
+  .picon { width:44px; height:44px; border-radius:11px; background:var(--panel2); display:grid; place-items:center; font-size:21px; flex:none;}
+  .ver-new { color: var(--ok); font-weight:600; }
+
+  .bar { height:7px; background:var(--panel2); border-radius:99px; overflow:hidden; }
+  .bar>span{display:block;height:100%;background:linear-gradient(90deg,var(--accent),var(--accent2));transition:width .4s;}
+
+  .log { font-family:"JetBrains Mono",ui-monospace,Consolas,monospace; font-size:12px; line-height:1.7;
+    background:#f5fafe; border:1px solid var(--line); border-radius:10px; padding:14px 16px; max-height:340px; overflow:auto; }
+  .log .ts{color:var(--faint)} .log .ok{color:var(--ok)} .log .warn{color:var(--warn)} .log .bad{color:var(--bad)} .log .info{color:var(--info)}
+
+  .field { margin-bottom:14px; }
+  .field label { display:block; font-size:12px; color:var(--muted); margin-bottom:6px; }
+  .field label .req { color: var(--bad); }
+  .input { width:100%; background:#fff; border:1px solid var(--line2); color:var(--text); padding:9px 12px; border-radius:9px; font-size:13px;}
+  .input:focus { outline:none; border-color: var(--accent); }
+  .hint { font-size:11.5px; color:var(--faint); margin-top:5px; }
+
+  .modal-bg { position:fixed; inset:0; background:rgba(16,34,52,.45); display:grid; place-items:center; z-index:50; padding:20px;}
+  .modal { width:min(560px,100%); max-height:90vh; overflow:auto; background:#fff; border:1px solid var(--line); border-radius:16px; box-shadow:0 24px 70px rgba(16,34,52,.30);}
+  .modal .mh{display:flex;align-items:center;padding:18px 20px;border-bottom:1px solid var(--line);}
+  .modal .mb{padding:20px;} .modal .mf{display:flex;gap:10px;justify-content:flex-end;padding:16px 20px;border-top:1px solid var(--line);}
+  .x { margin-left:auto; cursor:pointer; color:var(--muted); font-size:22px; line-height:1; }
+  .notes { list-style:none; padding:0; margin:0; }
+  .notes li { padding:9px 0 9px 22px; position:relative; border-bottom:1px solid var(--line); font-size:13px; }
+  .notes li:before { content:"›"; position:absolute; left:6px; color:var(--accent); font-weight:700; }
+  .notes li:last-child { border:none; }
+
+  .stat { padding:16px 18px; }
+  .stat .l{color:var(--muted);font-size:12px} .stat .v{font-size:26px;font-weight:700;margin-top:6px}
+  ::-webkit-scrollbar{height:9px;width:9px}::-webkit-scrollbar-thumb{background:var(--line2);border-radius:9px}
+  .note { background: var(--accentdim); border:1px solid var(--line2); border-radius:10px; padding:12px 14px; font-size:12.5px; color:var(--muted); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script>
+"use strict";
+/* ============================== AGENT IDENTITY (mock) ============================== */
+var AGENT = {
+  id:"ag-7f12c9", host:"prod-eu-01", tenant:"ACME Industries",
+  appliance:"1.8.2", certSerial:"3F:A1:90:2C:7B:E4", certExp:"2026-07-23",
+  lastPoll:"30с назад", pollInterval:60, enrolled:true
+};
+
+/* ============================== STATE ============================== */
+var products = [
+  { id:"invopay", name:"InvoPay", icon:"🏦", desc:"Межбанковские переводы (обход СБП)",
+    channel:"stable", latest:"2.3.1", installed:"2.2.0", state:"Работает",
+    signed:true, digest:"sha256:a7f3c9e1b2…", cve:0, relAt:"2026-06-18",
+    lic:{ state:"Действует", exp:"2026-06-26 14:00 UTC", graceUntil:null, left:null, jti:"lease-9f2a17", hardstop:"read-only", ttl:48, grace:7 },
+    config:[{k:"BANK_BIC",type:"string",req:true,val:"044525974"},{k:"CORR_ACCOUNT",type:"string",req:true,val:"30101810400000000974"},{k:"CLEARING_WINDOW_SEC",type:"int",req:false,val:"180"}],
+    notes:["Прямая маршрутизация переводов через корсчета банков-участников, минуя СБП.","Поддержка формата сообщений ISO 20022 (pacs.008 / pacs.002).","Клиринговое окно сокращено с 15 до 3 минут.","Устранены ранее найденные CVE в зависимостях."] },
+  { id:"miedo", name:"MI-EDO", icon:"📄", desc:"Электронный документооборот (ЭДО)",
+    channel:"stable", latest:"1.7.2", installed:null, state:"Доступен",
+    signed:true, digest:"sha256:3a1c00ed12…", cve:0, relAt:"2026-06-15", lic:null,
+    config:[{k:"OPERATOR_ID",type:"string",req:true,val:""},{k:"STORAGE_PATH",type:"string",req:true,val:"/var/lib/miedo"},{k:"SIGN_PROVIDER",type:"string",req:false,val:"CryptoPro"}],
+    notes:["Гибкие маршруты согласования документов.","Квалифицированная электронная подпись (КЭП) по ГОСТ.","Роуминг с внешними операторами ЭДО.","Распознавание реквизитов сканов (OCR)."] }
+];
+var S = { tab:"products", busy:{}, cfgModal:null, relModal:null,
+  enr:{ token:"enr_AB12CD34", host:"prod-eu-01", running:false, step:0, done:false, err:false } };
+var logLines = [
+  {ts:"11:42:08", cls:"info", m:"CatalogPoller: GET /v1/products → 4 продукта (stale=false)"},
+  {ts:"11:42:08", cls:"ok",   m:"heartbeat отправлен · POST /v1/heartbeat 204"},
+  {ts:"11:36:00", cls:"ok",   m:"invopay 2.2.0 · здоровье=healthy"}
+];
+
+var P = function(id){ return products.filter(function(x){return x.id===id;})[0]; };
+var hasUpdate = function(p){ return p.installed && p.installed !== p.latest; };
+
+function log(cls, m){
+  var ts = new Date().toLocaleTimeString("ru-RU",{hour12:false});
+  logLines.unshift({ts:ts,cls:cls,m:m});
+  if(logLines.length>60) logLines.pop();
+}
+
+/* ============================== HELPERS ============================== */
+function stateBadge(s){
+  var m={"Работает":"b-ok","Доступен":"b-mut","Обновляется":"b-info","Установка":"b-info","Проверка":"b-info","Сбой":"b-bad"};
+  var dc={"b-ok":"var(--ok)","b-mut":"var(--muted)","b-info":"var(--info)","b-bad":"var(--bad)"};
+  var c=m[s]||"b-mut";
+  return '<span class="badge '+c+'"><span class="dot" style="background:'+dc[c]+'"></span>'+s+'</span>';
+}
+function chBadge(c){ var m={stable:"b-ok",beta:"b-info",edge:"b-warn"}; return '<span class="badge '+(m[c]||"b-mut")+'">'+c+'</span>'; }
+function licBadge(s){
+  var m={"Действует":"b-ok","Льготный":"b-warn","Остановлен":"b-bad"};
+  var dc={"b-ok":"var(--ok)","b-warn":"var(--warn)","b-bad":"var(--bad)"};
+  var c=m[s]||"b-mut";
+  return '<span class="badge '+c+'"><span class="dot" style="background:'+dc[c]+'"></span>'+s+'</span>';
+}
+function makeLease(p){
+  return { state:"Действует", exp:"+48 ч от выдачи", graceUntil:null, left:null,
+    jti:"lease-"+Math.random().toString(16).slice(2,8), hardstop:(p.id==="miedo"?"deny":"read-only"), ttl:48, grace:7 };
+}
+/* ---- симуляция жизненного цикла лиза (S7, §2.15) ---- */
+function licExpire(id){
+  var p=P(id); if(!p.lic) return;
+  p.lic.state="Льготный"; p.lic.left=7; p.lic.graceUntil="через 7 дней";
+  log("warn", p.name+": лиз истёк (exp) и не продлён — активирован льготный период 7 дней. Продукт продолжает работать, оператору вендора виден отсчёт.");
+  render();
+}
+function licHardstop(id){
+  var p=P(id); if(!p.lic) return;
+  p.lic.state="Остановлен"; p.lic.left=0; p.lic.graceUntil="исчерпан";
+  if(p.lic.hardstop!=="read-only") p.state="Сбой";
+  log("bad", p.name+": льготный период (7д) исчерпан → HardStop ("+p.lic.hardstop+"). License SDK прекращает обслуживание.");
+  render();
+}
+function licRenew(id){
+  var p=P(id); if(!p.lic) return;
+  p.lic.state="Действует"; p.lic.left=null; p.lic.graceUntil=null;
+  if(p.installed) p.state="Работает";
+  log("ok", p.name+": license-sidecar → LicenseAgent → license-service — лиз продлён под действующий грант. Снова Действует.");
+  render();
+}
+
+/* ============================== INSTALL FLOW (§8.1) — только ручной запуск ============================== */
+var FLOW = [
+  { state:"Установка", pct:25,  msg:["compose pull по digest…","layer download: harbor/{repo}@{digest}"], cls:"info" },
+  { state:"Проверка",  pct:60,  msg:["cosign verify → подпись OK ✓","digest pin совпал ✓"], cls:"ok" },
+  { state:"Работает",  pct:100, msg:["compose up -d → 2 контейнера","health-check: healthy ✓"], cls:"ok" }
+];
+function runFlow(id, verb){
+  var p = P(id), target = p.latest;
+  log("info", verb+" "+p.name+" "+target+" — запущена админом организации (mTLS → agent-gateway)");
+  var i = 0;
+  function step(){
+    if(i >= FLOW.length){
+      p.installed = target; p.state = "Работает";
+      if(!p.lic) p.lic = makeLease(p);
+      delete S.busy[id];
+      log("ok", "Reporter: POST /v1/installations {"+p.id+", "+target+", Работает} → 202");
+      log("info", "license-sidecar получил лиз "+p.lic.jti+" (TTL "+p.lic.ttl+"ч) → License SDK: Действует");
+      render(); return;
+    }
+    var f = FLOW[i];
+    S.busy[id] = { pct:f.pct, state:f.state };
+    p.state = f.state;
+    f.msg.forEach(function(m){ log(f.cls, m.replace("{repo}",p.id).replace("{digest}",p.digest)); });
+    i++; render();
+    setTimeout(step, 950);
+  }
+  step();
+}
+function install(id){ runFlow(id, "Установка"); }
+function update(id){ runFlow(id, "Обновление"); }
+function remove(id){
+  var p=P(id); p.installed=null; p.state="Доступен"; p.lic=null;
+  log("warn", p.name+" удалён организацией → compose down"); render();
+}
+
+/* ============================== ENROLLMENT (S1) — со стороны агента ============================== */
+var ENROLL_STEPS = [
+  { t:"Проверка токена", d:"токен валиден (Issued, не истёк) → помечается Used", cls:"info" },
+  { t:"Генерация ключа и CSR", d:"локально создаётся пара ключей и CSR (CN = agentId)", cls:"info" },
+  { t:"POST /v1/enroll", d:"{token, CSR} → agent-gateway по TLS", cls:"info" },
+  { t:"Vault PKI подписывает CSR", d:"выдан клиентский сертификат + caBundle (привязка agent/tenant)", cls:"ok" },
+  { t:"Robot-креды Harbor", d:"выданы по scope организации — pull образов по digest", cls:"ok" },
+  { t:"Идентичность установлена", d:"mTLS-идентичность сохранена, агент активен", cls:"ok" }
+];
+function runEnroll(){
+  if(!S.enr.token.trim()){ S.enr.err=true; render(); return; }
+  S.enr.err=false; S.enr.running=true; S.enr.step=0; S.enr.done=false; render();
+  log("info","Enrollment запущен · токен "+S.enr.token+" · host "+S.enr.host);
+  function step(){
+    if(S.enr.step >= ENROLL_STEPS.length){ S.enr.running=false; S.enr.done=true; render(); return; }
+    var s = ENROLL_STEPS[S.enr.step];
+    log(s.cls, "enroll: "+s.t+" — "+s.d);
+    S.enr.step++; render();
+    setTimeout(step, 850);
+  }
+  step();
+}
+function finishEnroll(){
+  AGENT.enrolled = true; AGENT.host = S.enr.host || AGENT.host;
+  AGENT.certSerial = (function(){var h="0123456789ABCDEF",o=[],i;for(i=0;i<6;i++){o.push(h[Math.floor(Math.random()*16)]+h[Math.floor(Math.random()*16)]);}return o.join(":");})();
+  AGENT.certExp = "2026-07-30";
+  S.tab="products"; S.enr.running=false; S.enr.done=false;
+  log("ok","mTLS-идентичность получена · агент активен · опрос каталога запущен");
+  render();
+}
+function resetEnroll(){
+  AGENT.enrolled=false;
+  S.enr={ token:"enr_AB12CD34", host:AGENT.host, running:false, step:0, done:false, err:false };
+  render();
+}
+function renderEnroll(){
+  var s = S.enr;
+  var steps = ENROLL_STEPS.map(function(st,idx){
+    var done = idx < s.step, active = idx===s.step && s.running;
+    var ic = done ? '<span style="color:var(--ok);font-weight:700">✓</span>'
+      : (active ? '<span class="pulse" style="display:inline-block"></span>'
+      : '<span style="color:var(--faint)">○</span>');
+    var col = (done||active) ? "var(--text)" : "var(--faint)";
+    return '<div style="display:flex;gap:12px;padding:11px 0;border-bottom:1px solid var(--line)">'+
+      '<div style="width:20px;text-align:center">'+ic+'</div>'+
+      '<div style="flex:1"><div style="font-weight:600;color:'+col+'">'+st.t+'</div>'+
+      '<div style="font-size:12px;color:var(--muted)">'+st.d+'</div></div></div>';
+  }).join("");
+  var right = '<div class="panel pad"><h3 style="margin-bottom:8px">Шаги регистрации (S1)</h3>'+steps+
+    (s.done ? '<div style="margin-top:16px;display:flex;gap:10px;align-items:center">'+
+        '<button class="btn primary" data-act="enrollfinish">Войти в апплайанс →</button>'+
+        '<span class="badge b-ok"><span class="dot" style="background:var(--ok)"></span>идентичность получена</span></div>' : '')+'</div>';
+  var form = '<div class="panel pad">'+
+    '<h3 style="margin-bottom:4px">Регистрация апплайанса</h3>'+
+    '<div style="color:var(--muted);font-size:13px;margin-bottom:16px">Введите одноразовый токен, выданный оператором при заведении агента. Апплайанс сгенерирует CSR и получит mTLS-идентичность через Vault PKI.</div>'+
+    '<div class="field"><label>Hostname сервера</label><input class="input mono" value="'+s.host+'" data-enr="host"/></div>'+
+    '<div class="field"><label>Enrollment-токен <span style="color:var(--bad)">*</span></label>'+
+      '<input class="input mono" value="'+s.token+'" data-enr="token" placeholder="enr_…" '+(s.running||s.done?'readonly':'')+'/>'+
+      (s.err ? '<div class="hint" style="color:var(--bad)">Введите токен</div>'
+             : '<div class="hint">Одноразовый, короткий TTL. После использования становится Used и повторно не принимается.</div>')+'</div>'+
+    '<button class="btn primary" data-act="enrollstart" '+(s.running||s.done?'disabled':'')+'>'+
+      (s.running?'Регистрация…':(s.done?'Зарегистрировано ✓':'⚓ Зарегистрировать агент'))+'</button>'+
+  '</div>';
+  return '<div class="shell">'+
+    '<div class="head"><div class="logo">⚓</div><div><b>InversionWharf Agent</b><small>Первый запуск · требуется регистрация</small></div>'+
+      '<div class="spacer"></div><div class="conn" style="border-color:rgba(217,119,6,.4)">'+
+        '<span style="width:9px;height:9px;border-radius:50%;background:var(--warn);display:inline-block"></span>Не зарегистрирован</div></div>'+
+    '<div class="note" style="margin-bottom:18px">🔐 Docker предустанавливать не нужно — он встроен в апплайанс. После регистрации агент получит доступ к реестру образов Harbor по scope своей организации (robot-аккаунт).</div>'+
+    '<div class="grid" style="grid-template-columns:1fr 1fr;align-items:start">'+form+right+'</div>'+
+  '</div>';
+}
+
+/* ============================== VIEWS ============================== */
+function vProducts(){
+  var running = products.filter(function(p){return p.state==="Работает";}).length;
+  var updates = products.filter(hasUpdate).length;
+  var installedCount = products.filter(function(p){return p.installed;}).length;
+
+  var cards = products.map(function(p){
+    var b = S.busy[p.id];
+    var upd = hasUpdate(p);
+    var dis = b?"disabled":"";
+    var actions =
+      '<button class="btn sm" data-act="rel" data-arg="'+p.id+'">📝 Патчноут</button>'+
+      '<button class="btn sm" data-act="cfg" data-arg="'+p.id+'" '+dis+'>⚙ Конфиг</button>'+
+      (!p.installed ? '<button class="btn primary sm" data-act="install" data-arg="'+p.id+'" '+dis+'>⬇ Установить</button>' : '')+
+      (upd ? '<button class="btn primary sm" data-act="update" data-arg="'+p.id+'" '+dis+'>↑ Обновить</button>' : '')+
+      (p.installed && !upd ? '<button class="btn danger sm" data-act="remove" data-arg="'+p.id+'" '+dis+'>Удалить</button>' : '');
+    var progress = b ?
+      '<div style="margin-top:14px"><div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:5px">'+
+        '<span>'+b.state+'…</span><span>'+b.pct+'%</span></div>'+
+        '<div class="bar"><span style="width:'+b.pct+'%"></span></div></div>' : '';
+    var installedHtml = p.installed ? '<b class="mono">'+p.installed+'</b>' : '<span class="chip">не установлена</span>';
+
+    return '<div class="pcard"><div class="prow">'+
+      '<div class="picon">'+p.icon+'</div>'+
+      '<div style="flex:1;min-width:0">'+
+        '<div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">'+
+          '<b style="font-size:14.5px">'+p.name+'</b>'+chBadge(p.channel)+stateBadge(b?b.state:p.state)+
+          (p.signed?'<span class="badge b-ok" title="подпись проверена">✓ cosign</span>':'')+
+          (p.lic?licBadge(p.lic.state):'')+'</div>'+
+        '<div style="color:var(--muted);font-size:12.5px;margin-top:3px">'+p.desc+'</div>'+
+        '<div style="display:flex;gap:16px;margin-top:8px;font-size:12.5px;flex-wrap:wrap">'+
+          '<span>Доступна: <b class="mono">'+p.latest+'</b></span>'+
+          '<span>Установлена: '+installedHtml+'</span>'+
+          (upd?'<span class="ver-new">↑ новая версия '+p.latest+'</span>':'')+
+          '<span class="mono" style="color:var(--faint)">@'+p.digest+'</span></div>'+
+      '</div>'+
+      '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end">'+actions+'</div>'+
+      '</div>'+progress+'</div>';
+  }).join("");
+
+  return '<div class="grid">'+
+    '<div class="grid" style="grid-template-columns:repeat(3,1fr)">'+
+      '<div class="panel stat"><div class="l">Работают</div><div class="v" style="color:var(--ok)">'+running+'</div></div>'+
+      '<div class="panel stat"><div class="l">Доступно обновлений</div><div class="v" style="color:'+(updates?"var(--ok)":"var(--text)")+'">'+updates+'</div></div>'+
+      '<div class="panel stat"><div class="l">Установлено продуктов</div><div class="v" style="color:var(--accent)">'+installedCount+'</div></div>'+
+    '</div>'+
+    '<div class="note">🔒 Решение «что и когда устанавливать» принимает организация — вручную через этот интерфейс. '+
+      'Control Plane лишь отдаёт список доступных по грантам продуктов (<span class="mono">GET /v1/products</span>). '+
+      'Перед запуском обязательны <b>cosign verify</b> и pin по digest.</div>'+
+    '<div class="panel"><div class="ph"><h3>Доступные продукты</h3><span class="spacer"></span>'+
+      '<span class="chip">источник: GET /v1/products · stale=false</span></div>'+
+      '<div class="pb">'+cards+'</div></div>'+
+  '</div>';
+}
+
+function vStatus(){
+  var running = products.filter(function(p){return p.state==="Работает";}).length;
+  var installed = products.filter(function(p){return p.installed;});
+  var rows = installed.map(function(p){
+    return '<div class="kv"><span class="k">'+p.icon+' '+p.name+'</span>'+
+      '<span style="display:flex;gap:10px;align-items:center"><span class="mono">'+p.installed+'</span>'+
+      stateBadge(p.state)+'</span></div>';
+  }).join("") || '<div style="padding:20px;color:var(--muted)">Нет установленных продуктов.</div>';
+
+  return '<div class="grid">'+
+    '<div class="panel"><div class="ph"><h3>Установленные продукты · отчёт в Control Plane</h3><span class="spacer"></span>'+
+      '<span class="chip">POST /v1/installations</span></div>'+
+      '<div class="pb" style="padding:6px 18px">'+rows+'</div></div>'+
+    '<div class="grid" style="grid-template-columns:1fr 1fr">'+
+      '<div class="panel pad"><h3 style="margin-bottom:12px">Встроенная контейнерная среда</h3>'+
+        '<div class="kv"><span class="k">Runtime</span><span class="mono">Docker Engine 26.1</span></div>'+
+        '<div class="kv"><span class="k">Compose</span><span class="mono">v2.27 (vendored)</span></div>'+
+        '<div class="kv"><span class="k">dockerd</span><span class="badge b-ok"><span class="dot" style="background:var(--ok)"></span>работает</span></div>'+
+        '<div class="kv"><span class="k">Контейнеров запущено</span><span><b>'+(running*2)+'</b></span></div></div>'+
+      '<div class="panel pad"><h3 style="margin-bottom:12px">Связь с Control Plane</h3>'+
+        '<div class="kv"><span class="k">Endpoint</span><span class="mono">cp.inversionwharf.io</span></div>'+
+        '<div class="kv"><span class="k">Транспорт</span><span><span class="badge b-ok">mTLS · исходящий</span></span></div>'+
+        '<div class="kv"><span class="k">Последний опрос</span><span>'+AGENT.lastPoll+'</span></div>'+
+        '<div class="kv"><span class="k">Список продуктов</span><span><span class="badge b-ok">свежий (stale=false)</span></span></div></div>'+
+    '</div></div>';
+}
+
+function vActivity(){
+  var lines = logLines.map(function(l){
+    return '<div><span class="ts">'+l.ts+'</span> <span class="'+l.cls+'">'+l.m+'</span></div>';
+  }).join("");
+  return '<div class="panel pad"><div style="display:flex;align-items:center;margin-bottom:14px">'+
+    '<h3 style="margin:0">Локальный журнал агента</h3><span class="spacer"></span>'+
+    '<span class="chip">daemon: Installer · Verifier · Reporter</span></div>'+
+    '<div class="log">'+lines+'</div></div>';
+}
+
+function vSettings(){
+  return '<div class="grid" style="grid-template-columns:1fr 1fr">'+
+    '<div class="panel pad"><h3 style="margin-bottom:12px">Идентичность апплайанса</h3>'+
+      '<div class="kv"><span class="k">Agent ID</span><span class="mono">'+AGENT.id+'</span></div>'+
+      '<div class="kv"><span class="k">Hostname</span><span class="mono">'+AGENT.host+'</span></div>'+
+      '<div class="kv"><span class="k">Организация</span><span>'+AGENT.tenant+'</span></div>'+
+      '<div class="kv"><span class="k">Версия апплайанса</span><span class="mono">'+AGENT.appliance+'</span></div>'+
+      '<div style="margin-top:14px"><button class="btn sm">⟳ Проверить self-update</button></div></div>'+
+    '<div class="panel pad"><h3 style="margin-bottom:12px">mTLS-идентичность (enrollment)</h3>'+
+      '<div class="kv"><span class="k">Статус</span><span><span class="badge b-ok"><span class="dot" style="background:var(--ok)"></span>Зарегистрирован</span></span></div>'+
+      '<div class="kv"><span class="k">Cert serial</span><span class="mono">'+AGENT.certSerial+'</span></div>'+
+      '<div class="kv"><span class="k">CA</span><span>Vault PKI</span></div>'+
+      '<div class="kv"><span class="k">Действует до</span><span class="mono">'+AGENT.certExp+'</span></div>'+
+      '<div class="hint" style="margin-top:10px">Сертификат короткоживущий, ротация автоматическая.</div>'+
+      '<div style="margin-top:12px"><button class="btn sm" data-act="enrollreset">↻ Перерегистрировать (демо S1)</button></div></div>'+
+    '<div class="panel pad"><h3 style="margin-bottom:12px">Расписание опроса каталога</h3>'+
+      '<div class="field"><label>Интервал опроса Control Plane (сек)</label>'+
+      '<input class="input mono" value="'+AGENT.pollInterval+'"/>'+
+      '<div class="hint">Диапазон по NFR: 30–300 с. Определяет, как быстро агент узнаёт о новых версиях. Установку запускает админ вручную.</div></div></div>'+
+    '<div class="panel pad"><h3 style="margin-bottom:12px">Реестр образов (Harbor)</h3>'+
+      '<div class="kv"><span class="k">Robot-аккаунт</span><span class="mono">robot$acme+agent</span></div>'+
+      '<div class="kv"><span class="k">Scope</span><span class="chip">tenant: ACME</span></div>'+
+      '<div class="kv"><span class="k">Pull</span><span><span class="badge b-ok">по digest · TLS</span></span></div></div>'+
+  '</div>';
+}
+
+function vLicense(){
+  var installed = products.filter(function(p){return p.installed && p.lic;});
+  var note = '<div class="note">🛡️ Лицензия проверяется в рантайме самого продукта: <b>license-sidecar</b> заблаговременно продлевает короткоживущий подписанный лиз через <b>LicenseAgent</b> (mTLS → license-service), а <b>License SDK</b> в каждом сервисе офлайн проверяет подпись пиннутым ключом. Без продления продукт после <b>льготного периода (7 дней)</b> переходит в HardStop.</div>';
+  if(!installed.length) return '<div class="grid">'+note+'<div class="panel pad" style="color:var(--muted)">Нет установленных продуктов. Установите продукт во вкладке «Продукты» — он получит лицензионный лиз.</div></div>';
+  var cards = installed.map(function(p){
+    var L=p.lic;
+    var grace = L.state==="Льготный" ? (function(){
+        var pct=Math.round((L.left/7)*100);
+        return '<div style="margin-top:14px"><div style="display:flex;justify-content:space-between;font-size:12px;color:var(--warn);margin-bottom:5px"><span>⏳ Льготный период — осталось '+L.left+' дн.</span><span>из 7</span></div>'+
+          '<div class="bar"><span style="width:'+pct+'%;background:linear-gradient(90deg,#f59e0b,#f97316)"></span></div>'+
+          '<div class="hint" style="margin-top:6px">Продукт продолжает работать. Оператору вендора при этом видно: организация, продукт, агент и остаток дней.</div></div>';
+      })()
+      : (L.state==="Остановлен" ? '<div class="note" style="margin-top:14px;background:rgba(220,38,38,.06);border-color:rgba(220,38,38,.3);color:var(--bad)">⛔ Льготный период исчерпан → HardStop ('+L.hardstop+'). Обслуживание прекращено до продления лиза.</div>' : '');
+    var actions = L.state==="Действует"
+      ? '<button class="btn sm" data-act="licexpire" data-arg="'+p.id+'">▶ Симулировать окончание лицензии</button>'
+      : (L.state==="Льготный"
+        ? '<button class="btn primary sm" data-act="licrenew" data-arg="'+p.id+'">↻ Продлить лиз</button> <button class="btn danger sm" data-act="lichard" data-arg="'+p.id+'">⏭ Симулировать исчерпание грейса</button>'
+        : '<button class="btn primary sm" data-act="licrenew" data-arg="'+p.id+'">↻ Продлить лиз (восстановить)</button>');
+    var claims = 'productId='+p.id+' · channel='+p.channel+'<br>tenantId='+AGENT.tenant+' · agentId='+AGENT.id+'<br>exp='+L.exp+' · graceUntil='+(L.graceUntil||"—")+'<br>jti='+L.jti+' · iss=license-service';
+    return '<div class="panel"><div class="ph"><h3>'+p.icon+' '+p.name+'</h3>'+licBadge(L.state)+
+      '<span class="spacer"></span><span class="chip">HardStop: '+L.hardstop+'</span></div>'+
+      '<div style="padding:18px">'+
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:18px">'+
+          '<div><div class="kv"><span class="k">Лиз (jti)</span><span class="mono">'+L.jti+'</span></div>'+
+            '<div class="kv"><span class="k">TTL лиза</span><span class="mono">'+L.ttl+' ч</span></div>'+
+            '<div class="kv"><span class="k">Истекает (exp)</span><span class="mono">'+L.exp+'</span></div>'+
+            '<div class="kv"><span class="k">Льготный период</span><span class="mono">'+L.grace+' дн.</span></div></div>'+
+          '<div><div style="font-size:12px;color:var(--muted);margin-bottom:8px">Компоненты модуля (§2.15)</div>'+
+            '<div class="kv"><span class="k">license-sidecar</span><span class="badge b-ok">продление</span></div>'+
+            '<div class="kv"><span class="k">License SDK</span><span class="badge b-info">точка принуждения</span></div>'+
+            '<div class="kv"><span class="k">LicenseAgent</span><span class="badge b-acc">форвард mTLS</span></div></div>'+
+        '</div>'+grace+
+        '<div style="margin-top:16px"><div style="font-size:12px;color:var(--muted);margin-bottom:6px">Claims лиза (проверяются офлайн пиннутым публичным ключом)</div>'+
+          '<div class="log" style="max-height:none">'+claims+'</div></div>'+
+        '<div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">'+actions+'</div>'+
+      '</div></div>';
+  }).join("");
+  return '<div class="grid">'+note+cards+'</div>';
+}
+
+/* ============================== MODALS ============================== */
+function cfgModalHtml(){
+  if(!S.cfgModal) return "";
+  var p = P(S.cfgModal);
+  var fields = p.config.map(function(c, i){
+    var missing = c.req && !String(c.val).trim();
+    return '<div class="field"><label class="mono">'+c.k+' '+(c.req?'<span class="req">*</span>':'')+' <span class="chip">'+c.type+'</span></label>'+
+      '<input class="input mono" data-cfgidx="'+i+'" value="'+String(c.val).replace(/"/g,"&quot;")+'" placeholder="'+(c.req?"обязательно":"необязательно")+'"/>'+
+      (missing?'<div class="hint" style="color:var(--bad)">Обязательное поле</div>':'')+'</div>';
+  }).join("");
+  var anyMissing = p.config.some(function(c){return c.req && !String(c.val).trim();});
+  return '<div class="modal-bg" data-act="cfgclose"><div class="modal">'+
+    '<div class="mh"><div><h3 style="margin:0">Локальный конфиг · '+p.name+'</h3>'+
+      '<div style="font-size:12px;color:var(--muted);margin-top:3px">Схема из каталога · значения хранятся только на агенте</div></div>'+
+      '<span class="x" data-act="cfgclose">×</span></div>'+
+    '<div class="mb">'+fields+
+      '<div class="note">Compose-шаблон рендерится из этих значений перед <span class="mono">compose up -d</span>.</div></div>'+
+    '<div class="mf"><button class="btn ghost" data-act="cfgclose">Отмена</button>'+
+      '<button class="btn primary" data-act="cfgsave" '+(anyMissing?"disabled":"")+'>Сохранить конфиг</button></div>'+
+  '</div></div>';
+}
+
+function relModalHtml(){
+  if(!S.relModal) return "";
+  var p = P(S.relModal);
+  var items = p.notes.map(function(n){return '<li>'+n+'</li>';}).join("");
+  return '<div class="modal-bg" data-act="relclose"><div class="modal">'+
+    '<div class="mh"><div><h3 style="margin:0">Релиз-ноуты · '+p.name+' <span class="mono">'+p.latest+'</span></h3>'+
+      '<div style="font-size:12px;color:var(--muted);margin-top:4px;display:flex;gap:8px;align-items:center">'+
+        chBadge(p.channel)+' · опубликован '+p.relAt+'</div></div>'+
+      '<span class="x" data-act="relclose">×</span></div>'+
+    '<div class="mb"><ul class="notes">'+items+'</ul></div>'+
+    '<div class="mf"><button class="btn" data-act="relclose">Закрыть</button></div></div></div>';
+}
+
+/* ============================== SHELL ============================== */
+var $root = document.getElementById("root");
+function render(){
+  if(!AGENT.enrolled){ $root.innerHTML = renderEnroll(); return; }
+  var updates = products.filter(hasUpdate).length;
+  var tab = function(id,label,extra){
+    return '<div class="tab '+(S.tab===id?"active":"")+'" data-act="tab" data-arg="'+id+'">'+label+(extra||'')+'</div>';
+  };
+  var graceN = products.filter(function(p){return p.lic && (p.lic.state==="Льготный"||p.lic.state==="Остановлен");}).length;
+  var content = S.tab==="products"?vProducts():S.tab==="license"?vLicense():S.tab==="status"?vStatus():S.tab==="activity"?vActivity():vSettings();
+
+  $root.innerHTML = '<div class="shell">'+
+    '<div class="head"><div class="logo">⚓</div>'+
+      '<div><b>InversionWharf Agent</b><small>'+AGENT.host+' · '+AGENT.tenant+'</small></div>'+
+      '<div class="spacer"></div>'+
+      '<div class="conn"><span class="pulse"></span>Control Plane подключён · опрос '+AGENT.lastPoll+'</div></div>'+
+    '<div class="tabs">'+
+      tab("products","📦 Продукты", updates>0?' <span class="pill" style="color:var(--ok)">'+updates+' обновл.</span>':'')+
+      tab("license","🛡️ Лицензия", graceN>0?' <span class="pill" style="color:var(--warn)">'+graceN+' грейс</span>':'')+
+      tab("status","📊 Статус")+
+      tab("activity","📜 Активность")+
+      tab("settings","⚙️ Апплайанс")+
+    '</div>'+content+'</div>'+ cfgModalHtml() + relModalHtml();
+}
+
+function isBgClick(t, e){ return t.classList.contains("modal-bg") ? (e.target===t) : true; }
+
+$root.addEventListener("input", function(e){
+  var enr = e.target.closest("[data-enr]");
+  if(enr){ S.enr[enr.getAttribute("data-enr")] = enr.value; return; }
+  var inp = e.target.closest("[data-cfgidx]");
+  if(inp && S.cfgModal){
+    var p = P(S.cfgModal);
+    p.config[parseInt(inp.getAttribute("data-cfgidx"),10)].val = inp.value;
+    var anyMissing = p.config.some(function(c){return c.req && !String(c.val).trim();});
+    var save = $root.querySelector('[data-act="cfgsave"]');
+    if(save) save.disabled = anyMissing;
+  }
+});
+
+$root.addEventListener("click", function(e){
+  var t = e.target.closest("[data-act]"); if(!t) return;
+  var act = t.getAttribute("data-act"), arg = t.getAttribute("data-arg");
+  if(act==="cfgclose"){ if(!isBgClick(t,e)) return; S.cfgModal=null; render(); return; }
+  if(act==="relclose"){ if(!isBgClick(t,e)) return; S.relModal=null; render(); return; }
+  if(act==="tab"){ S.tab=arg; render(); return; }
+  if(act==="install"){ install(arg); return; }
+  if(act==="update"){ update(arg); return; }
+  if(act==="remove"){ remove(arg); return; }
+  if(act==="licexpire"){ licExpire(arg); return; }
+  if(act==="lichard"){ licHardstop(arg); return; }
+  if(act==="licrenew"){ licRenew(arg); return; }
+  if(act==="enrollstart"){ runEnroll(); return; }
+  if(act==="enrollfinish"){ finishEnroll(); return; }
+  if(act==="enrollreset"){ resetEnroll(); return; }
+  if(act==="cfg"){ S.cfgModal=arg; render(); return; }
+  if(act==="rel"){ S.relModal=arg; render(); return; }
+  if(act==="cfgsave"){
+    var p=P(S.cfgModal);
+    log("info", "Локальный конфиг "+p.name+" сохранён ("+p.config.length+" перем.)");
+    S.cfgModal=null; render(); return;
+  }
+});
+
+render();
+</script>
+</body>
+</html>

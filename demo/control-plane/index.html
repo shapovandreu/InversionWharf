@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>InversionWharf · Control Plane</title>
+<style>
+  :root {
+    --bg: #eaf1fb; --bg2: #f4f8fd; --panel: #ffffff; --panel2: #eef4fc;
+    --line: #d8e4f3; --line2: #c3d6ee;
+    --text: #14233b; --muted: #5d6f8c; --faint: #8a99b3;
+    --accent: #2563eb; --accent2: #0ea5e9; --accentdim: #dbeafe;
+    --ok: #16a34a; --warn: #d97706; --bad: #dc2626; --info: #2563eb;
+    --radius: 12px; --shadow: 0 6px 22px rgba(37,99,235,.08);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: radial-gradient(1200px 600px at 80% -10%, #d6e6fb 0%, var(--bg) 55%);
+    color: var(--text); font: 14px/1.5 "Segoe UI", Roboto, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  #root { height: 100%; }
+  a { color: var(--accent); text-decoration: none; }
+
+  .app { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
+  .sidebar {
+    background: linear-gradient(180deg, #ffffff, #f3f8fe);
+    border-right: 1px solid var(--line); padding: 18px 14px; position: sticky; top: 0; height: 100vh;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; padding: 6px 8px 18px; }
+  .brand .logo {
+    width: 34px; height: 34px; border-radius: 9px; flex: none;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    display: grid; place-items: center; color: #fff; font-weight: 800; box-shadow: var(--shadow);
+  }
+  .brand b { font-size: 15px; letter-spacing: .2px; }
+  .brand small { display: block; color: var(--muted); font-size: 11px; font-weight: 500; }
+  .navlbl { color: var(--faint); font-size: 10.5px; text-transform: uppercase; letter-spacing: .12em; margin: 14px 8px 4px; }
+  .nav { display: flex; align-items: center; gap: 10px; padding: 9px 11px; border-radius: 9px; color: var(--muted); cursor: pointer; font-weight: 500; }
+  .nav:hover { background: var(--panel2); color: var(--text); }
+  .nav.active { background: linear-gradient(90deg, rgba(37,99,235,.12), rgba(14,165,233,.06)); color: var(--accent); box-shadow: inset 0 0 0 1px var(--line2); }
+  .nav .ic { width: 18px; text-align: center; opacity: .9; }
+  .sidefoot { margin-top: auto; border-top: 1px solid var(--line); padding-top: 12px; display: flex; align-items: center; gap: 10px; }
+  .avatar { width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(135deg,#2563eb,#0ea5e9); display:grid; place-items:center; color:#fff; font-weight:700; flex:none;}
+
+  .main { padding: 22px 28px 60px; min-width: 0; }
+  .topbar { display: flex; align-items: center; gap: 16px; margin-bottom: 22px; }
+  .topbar h1 { font-size: 21px; margin: 0; font-weight: 650; }
+  .topbar .sub { color: var(--muted); font-size: 12.5px; }
+  .spacer { flex: 1; }
+  .search { background: #fff; border: 1px solid var(--line); color: var(--text); padding: 8px 12px; border-radius: 9px; width: 240px; }
+  .search::placeholder { color: var(--faint); }
+
+  .grid { display: grid; gap: 16px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+  .panel.pad { padding: 18px; }
+  .panel h3 { margin: 0 0 2px; font-size: 14px; }
+  .panel .ph { display: flex; align-items: center; gap: 10px; padding: 15px 18px; border-bottom: 1px solid var(--line); }
+  .panel .ph h3 { font-size: 14px; }
+  .panel .pb { padding: 6px 4px; }
+
+  .kpi { padding: 16px 18px; }
+  .kpi .l { color: var(--muted); font-size: 12px; display:flex; align-items:center; gap:8px; }
+  .kpi .v { font-size: 28px; font-weight: 700; margin-top: 8px; letter-spacing: .5px; }
+  .kpi .d { font-size: 12px; margin-top: 6px; color: var(--muted); }
+  .kpi .ic { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; background: var(--panel2); font-size: 15px; }
+
+  .badge { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 600; border: 1px solid transparent; white-space: nowrap; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+  .b-ok { color: var(--ok); background: rgba(22,163,74,.10); border-color: rgba(22,163,74,.25); }
+  .b-warn { color: var(--warn); background: rgba(217,119,6,.10); border-color: rgba(217,119,6,.25); }
+  .b-bad { color: var(--bad); background: rgba(220,38,38,.10); border-color: rgba(220,38,38,.25); }
+  .b-info { color: var(--info); background: rgba(37,99,235,.10); border-color: rgba(37,99,235,.25); }
+  .b-mut { color: var(--muted); background: rgba(93,111,140,.08); border-color: var(--line2); }
+  .b-acc { color: var(--accent); background: rgba(14,165,233,.10); border-color: rgba(14,165,233,.25); }
+
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; color: var(--faint); font-size: 10.5px; text-transform: uppercase; letter-spacing: .1em; font-weight: 600; padding: 11px 14px; border-bottom: 1px solid var(--line); }
+  td { padding: 12px 14px; border-bottom: 1px solid rgba(216,228,243,.7); font-size: 13px; }
+  tbody tr:hover { background: rgba(37,99,235,.04); }
+  tbody tr.click { cursor: pointer; }
+  td.mono, .mono { font-family: "JetBrains Mono", ui-monospace, Consolas, monospace; font-size: 12px; }
+  .digest { color: var(--muted); }
+
+  .btn { background: #fff; border: 1px solid var(--line2); color: var(--text); padding: 8px 14px; border-radius: 9px; cursor: pointer; font-weight: 600; font-size: 13px; display:inline-flex; align-items:center; gap:7px;}
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn.primary { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; border: none; }
+  .btn.primary:hover { color:#fff; filter:brightness(1.05); }
+  .btn.sm { padding: 5px 10px; font-size: 12px; }
+  .btn.ghost { background: transparent; }
+  .btn.danger { color: var(--bad); border-color: rgba(220,38,38,.35); }
+  .btn.danger:hover { border-color: var(--bad); color: var(--bad); background: rgba(220,38,38,.06); }
+  .btn:disabled { opacity:.45; cursor:not-allowed; }
+
+  .chip { font-size: 11px; padding: 2px 8px; border-radius: 6px; background: var(--panel2); border:1px solid var(--line); color: var(--muted); }
+  .crumb { color: var(--muted); cursor: pointer; }
+  .crumb:hover { color: var(--accent); }
+
+  .scroll { overflow-x: auto; }
+  .timeline { position: relative; padding-left: 22px; }
+  .timeline:before { content:""; position:absolute; left:7px; top:6px; bottom:6px; width:2px; background:var(--line); }
+  .tl-item { position: relative; padding: 8px 0 14px; }
+  .tl-item .tdot { position:absolute; left:-19px; top:11px; width:10px; height:10px; border-radius:50%; border:2px solid #fff; box-shadow:0 0 0 1px var(--line); }
+
+  .modal-bg { position:fixed; inset:0; background:rgba(20,35,56,.45); display:grid; place-items:center; z-index:50; padding:20px; }
+  .modal { width:min(620px,100%); max-height:90vh; overflow:auto; background:#fff; border:1px solid var(--line); border-radius:16px; box-shadow:0 24px 70px rgba(20,35,56,.30); }
+  .modal .mh { display:flex; align-items:center; padding:18px 20px; border-bottom:1px solid var(--line); }
+  .modal .mb { padding:20px; }
+  .modal .mf { display:flex; gap:10px; justify-content:flex-end; padding:16px 20px; border-top:1px solid var(--line); }
+  .x { margin-left:auto; cursor:pointer; color:var(--muted); font-size:22px; line-height:1; }
+  .field { margin-bottom:14px; }
+  .field label { display:block; font-size:12px; color:var(--muted); margin-bottom:6px; }
+  .input { width:100%; background:#fff; border:1px solid var(--line2); color:var(--text); padding:9px 12px; border-radius:9px; font-size:13px; font-family:inherit; }
+  .input:focus { outline:none; border-color:var(--accent); }
+  .notes { list-style:none; padding:0; margin:0; }
+  .notes li { padding:9px 0 9px 22px; position:relative; border-bottom:1px solid var(--line); font-size:13px; }
+  .notes li:before { content:"›"; position:absolute; left:6px; color:var(--accent); font-weight:700; }
+  .notes li:last-child { border:none; }
+
+  ::-webkit-scrollbar { height: 9px; width: 9px; }
+  ::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 9px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script>
+"use strict";
+/* ============================== MOCK DATA ============================== */
+var PRODUCTS = [
+  { id:"p-invopay", slug:"invopay", name:"InvoPay", desc:"Межбанковские переводы (обход СБП)", releases:6, latest:"2.3.1", agents:34 },
+  { id:"p-miedo",   slug:"mi-edo",  name:"MI-EDO",  desc:"Электронный документооборот (ЭДО)", releases:5, latest:"1.7.2", agents:41 }
+];
+var RELEASES = {
+  "p-invopay": [
+    { v:"2.3.1", ch:"stable", at:"2026-06-18", signed:true, sbom:true, cve:0, images:[{repo:"harbor/invopay/gateway",digest:"sha256:a7f3c9e1b2"},{repo:"harbor/invopay/clearing",digest:"sha256:91bb02de44"}],
+      notes:["Прямая маршрутизация переводов через корреспондентские счёта банков-участников, минуя СБП.","Поддержка формата сообщений ISO 20022 (pacs.008 / pacs.002).","Клиринг ускорен: расчётное окно сокращено с 15 до 3 минут.","Устранены ранее найденные CVE в зависимостях."] },
+    { v:"2.3.0", ch:"stable", at:"2026-05-28", signed:true, sbom:true, cve:1, images:[{repo:"harbor/invopay/gateway",digest:"sha256:cc01ab9f77"}],
+      notes:["Сверка платежей по реестру банков-участников.","Идемпотентность повторных платёжных поручений.","Известная проблема: 1 CVE средней критичности (фикс в 2.3.1)."] },
+    { v:"2.4.0-beta", ch:"beta", at:"2026-06-20", signed:true, sbom:true, cve:0, images:[{repo:"harbor/invopay/gateway",digest:"sha256:de44aa1290"}],
+      notes:["Предпросмотр: мультивалютные переводы (USD/CNY/AED).","Экспериментальный лимит-контроль по контрагентам.","Beta: не рекомендуется для продакшена."] },
+    { v:"2.2.0", ch:"deprecated", at:"2026-03-10", signed:true, sbom:false, cve:3, images:[{repo:"harbor/invopay/gateway",digest:"sha256:7700ffaa12"}],
+      notes:["Базовый клиринг между двумя банками.","Версия устарела: содержит 3 неустранённых CVE.","Рекомендуется переход на 2.3.x."] }
+  ],
+  "p-miedo": [
+    { v:"1.7.2", ch:"stable", at:"2026-06-15", signed:true, sbom:true, cve:0, images:[{repo:"harbor/miedo/core",digest:"sha256:3a1c00ed12"},{repo:"harbor/miedo/storage",digest:"sha256:5fe0a1c733"}],
+      notes:["Гибкие маршруты согласования документов.","Квалифицированная электронная подпись (КЭП) по ГОСТ.","Роуминг с внешними операторами ЭДО.","Распознавание реквизитов сканов (OCR)."] },
+    { v:"1.8.0-edge", ch:"edge", at:"2026-06-22", signed:true, sbom:true, cve:2, images:[{repo:"harbor/miedo/core",digest:"sha256:b2c0991aef"}],
+      notes:["Ранний доступ: машиночитаемые доверенности (МЧД).","Edge-канал: возможны нестабильности.","Содержит 2 CVE низкой критичности."] },
+    { v:"1.6.0", ch:"deprecated", at:"2026-02-18", signed:true, sbom:false, cve:2, images:[{repo:"harbor/miedo/core",digest:"sha256:1290ab77ff"}],
+      notes:["Базовый документооборот и файловое хранилище.","Версия устарела.","Рекомендуется обновление на 1.7.x."] }
+  ]
+};
+var TENANTS = [
+  { id:"t-acme", name:"ACME Industries", agents:18, grants:6, plan:"Enterprise" },
+  { id:"t-globex", name:"Globex Corp", agents:9, grants:4, plan:"Business" },
+  { id:"t-initech", name:"Initech LLC", agents:5, grants:3, plan:"Business" },
+  { id:"t-umbrella", name:"Umbrella Group", agents:3, grants:2, plan:"Trial" }
+];
+var AGENTS = [
+  { id:"ag-7f12", host:"prod-eu-01", tenant:"ACME Industries", status:"Активен", ver:"1.8.2", seen:"30с назад", installs:2 },
+  { id:"ag-9a04", host:"prod-eu-02", tenant:"ACME Industries", status:"Активен", ver:"1.8.2", seen:"1м назад", installs:2 },
+  { id:"ag-3c88", host:"prod-us-01", tenant:"ACME Industries", status:"Нет связи", ver:"1.7.9", seen:"6ч назад", installs:2 },
+  { id:"ag-b210", host:"edge-fra-01", tenant:"Globex Corp", status:"Активен", ver:"1.8.2", seen:"12с назад", installs:1 },
+  { id:"ag-e551", host:"app-lon-01", tenant:"Globex Corp", status:"Активен", ver:"1.8.1", seen:"2м назад", installs:2 },
+  { id:"ag-44aa", host:"app-lon-02", tenant:"Initech LLC", status:"Зарегистрирован", ver:"—", seen:"никогда", installs:0 },
+  { id:"ag-1290", host:"poc-01", tenant:"Umbrella Group", status:"Выведен", ver:"1.7.0", seen:"14д назад", installs:0 }
+];
+var GRANTS = [
+  { id:"g-001", tenant:"ACME Industries", product:"InvoPay", channel:"stable", scope:"TENANT", agent:"—", exp:"2026-12-31", status:"Действует" },
+  { id:"g-002", tenant:"ACME Industries", product:"MI-EDO", channel:"stable", scope:"TENANT", agent:"—", exp:"2026-12-31", status:"Действует" },
+  { id:"g-003", tenant:"ACME Industries", product:"InvoPay", channel:"beta", scope:"AGENT", agent:"prod-eu-01", exp:"2026-07-15", status:"Истекает" },
+  { id:"g-004", tenant:"Globex Corp", product:"MI-EDO", channel:"edge", scope:"TENANT", agent:"—", exp:"2026-09-30", status:"Действует" },
+  { id:"g-005", tenant:"Globex Corp", product:"InvoPay", channel:"stable", scope:"TENANT", agent:"—", exp:"2026-06-20", status:"Истёк" },
+  { id:"g-006", tenant:"Initech LLC", product:"MI-EDO", channel:"stable", scope:"TENANT", agent:"—", exp:"2026-12-01", status:"Действует" }
+];
+var INSTALLS = [
+  { agent:"prod-eu-01", product:"InvoPay", v:"2.3.1", health:"Работает", at:"30с назад" },
+  { agent:"prod-eu-01", product:"MI-EDO", v:"1.7.2", health:"Работает", at:"30с назад" },
+  { agent:"prod-eu-02", product:"InvoPay", v:"2.3.1", health:"Работает", at:"1м назад" },
+  { agent:"prod-eu-02", product:"MI-EDO", v:"1.7.2", health:"Обновляется", at:"1м назад" },
+  { agent:"prod-us-01", product:"InvoPay", v:"2.3.0", health:"Работает", at:"6ч назад" },
+  { agent:"prod-us-01", product:"MI-EDO", v:"1.7.2", health:"Сбой", at:"6ч назад" },
+  { agent:"edge-fra-01", product:"MI-EDO", v:"1.8.0-edge", health:"Работает", at:"12с назад" },
+  { agent:"app-lon-01", product:"InvoPay", v:"2.3.1", health:"Работает", at:"2м назад" },
+  { agent:"app-lon-01", product:"MI-EDO", v:"1.7.2", health:"Работает", at:"2м назад" }
+];
+var AUDIT = [
+  { t:"2026-06-23 11:42:08", actor:"op:alice", action:"release.publish", target:"invopay 2.3.1", kind:"info" },
+  { t:"2026-06-23 11:39:51", actor:"op:alice", action:"release.promote → stable", target:"invopay 2.3.1", kind:"ok" },
+  { t:"2026-06-23 10:21:30", actor:"op:bob", action:"grant.create", target:"ACME → MI-EDO (stable)", kind:"info" },
+  { t:"2026-06-23 09:58:12", actor:"agent:ag-44aa", action:"enroll.used", target:"Initech / app-lon-02", kind:"ok" },
+  { t:"2026-06-23 08:14:45", actor:"op:bob", action:"grant.revoke", target:"Globex → InvoPay", kind:"warn" },
+  { t:"2026-06-22 22:03:09", actor:"agent:ag-3c88", action:"installation.reported", target:"MI-EDO 1.7.2 = Сбой", kind:"bad" },
+  { t:"2026-06-22 17:47:00", actor:"op:alice", action:"agent.decommission", target:"Umbrella / poc-01", kind:"warn" }
+];
+var VERSION_DIST = [
+  { label:"InvoPay 2.3.1", n:24, c:"#2563eb" },
+  { label:"InvoPay 2.3.0", n:7, c:"#0ea5e9" },
+  { label:"MI-EDO 1.7.2", n:38, c:"#38bdf8" },
+  { label:"MI-EDO 1.8.0-edge", n:5, c:"#f59e0b" },
+  { label:"прочие", n:8, c:"#94a3b8" }
+];
+/* ---- Рантайм-лицензирование (B9, §2.15): политика, лизы, льготный период ---- */
+var LIC_POLICY = {
+  "p-invopay": { ttl:48, grace:7, hardstop:"read-only", max:5 },
+  "p-miedo":   { ttl:72, grace:7, hardstop:"deny",      max:10 }
+};
+var LEASES = [
+  { tenant:"ACME Industries", product:"InvoPay", agent:"prod-eu-01", state:"Действует",  exp:"2026-06-26", grace:"—",          left:null, jti:"lease-9f2a17" },
+  { tenant:"ACME Industries", product:"MI-EDO",  agent:"prod-eu-02", state:"Льготный",   exp:"2026-06-22", grace:"2026-06-29", left:5,    jti:"lease-7c8104" },
+  { tenant:"Globex Corp",     product:"MI-EDO",  agent:"edge-fra-01",state:"Действует",  exp:"2026-06-27", grace:"—",          left:null, jti:"lease-b21055" },
+  { tenant:"Globex Corp",     product:"InvoPay", agent:"app-lon-01", state:"Льготный",   exp:"2026-06-20", grace:"2026-06-27", left:3,    jti:"lease-44de90" },
+  { tenant:"Initech LLC",     product:"MI-EDO",  agent:"app-lon-02", state:"Остановлен", exp:"2026-06-10", grace:"2026-06-17", left:0,    jti:"lease-129077" }
+];
+function licState(host, product){
+  var l = LEASES.filter(function(x){return x.agent===host && x.product===product;})[0];
+  return l ? l.state : "—";
+}
+function policyOf(pid){ return LIC_POLICY[pid] || { ttl:48, grace:7, hardstop:"read-only", max:5 }; }
+
+/* ============================== HELPERS ============================== */
+function statusBadge(s){
+  var m = { "Активен":"b-ok","Работает":"b-ok","Действует":"b-ok",
+    "Нет связи":"b-warn","Истекает":"b-warn","Льготный":"b-warn",
+    "Сбой":"b-bad","Истёк":"b-bad","Отозван":"b-bad","Остановлен":"b-bad",
+    "Обновляется":"b-info","Зарегистрирован":"b-info",
+    "Выведен":"b-mut" };
+  var dotc = { "b-ok":"var(--ok)","b-warn":"var(--warn)","b-bad":"var(--bad)","b-info":"var(--info)","b-mut":"var(--muted)" };
+  var cls = m[s] || "b-mut";
+  return '<span class="badge '+cls+'"><span class="dot" style="background:'+dotc[cls]+'"></span>'+s+'</span>';
+}
+function channelBadge(c){
+  var m = { stable:"b-ok", beta:"b-info", edge:"b-warn", deprecated:"b-mut" };
+  var lbl = { stable:"stable", beta:"beta", edge:"edge", deprecated:"устаревший" };
+  return '<span class="badge '+(m[c]||"b-mut")+'">'+(lbl[c]||c)+'</span>';
+}
+function kpi(o){
+  return '<div class="panel kpi"><div style="display:flex;justify-content:space-between;align-items:flex-start">'+
+    '<div class="l">'+o.label+'</div><div class="ic" style="color:'+o.color+'">'+o.icon+'</div></div>'+
+    '<div class="v">'+o.value+'</div>'+(o.delta?'<div class="d">'+o.delta+'</div>':'')+'</div>';
+}
+function donut(segments, size, label){
+  size = size||140;
+  var total = segments.reduce(function(a,s){return a+s.n;},0);
+  var r = size/2-14, cx=size/2, cy=size/2, C=2*Math.PI*r, off=0, parts="";
+  segments.forEach(function(s){
+    var len=(s.n/total)*C;
+    parts += '<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="none" stroke="'+s.c+'" stroke-width="16" stroke-dasharray="'+len+' '+(C-len)+'" stroke-dashoffset="'+(-off)+'" transform="rotate(-90 '+cx+' '+cy+')"></circle>';
+    off += len;
+  });
+  return '<svg width="'+size+'" height="'+size+'" viewBox="0 0 '+size+' '+size+'">'+
+    '<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="none" stroke="#e6eef8" stroke-width="16"></circle>'+parts+
+    '<text x="'+cx+'" y="'+(cy-2)+'" text-anchor="middle" fill="#14233b" font-size="22" font-weight="700">'+total+'</text>'+
+    '<text x="'+cx+'" y="'+(cy+16)+'" text-anchor="middle" fill="#5d6f8c" font-size="10">'+label+'</text></svg>';
+}
+function bars(data, height){
+  height = height||130;
+  var max = Math.max.apply(null, data.map(function(d){return d.n;}));
+  var inner = data.map(function(d){
+    return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:8px">'+
+      '<div style="font-size:11px;color:var(--muted)">'+d.n+'</div>'+
+      '<div style="width:100%;max-width:46px;height:'+((d.n/max)*100)+'%;min-height:4px;background:linear-gradient(180deg,'+d.c+','+d.c+'55);border-radius:6px 6px 0 0"></div>'+
+      '<div style="font-size:10.5px;color:var(--faint);text-align:center">'+d.label+'</div></div>';
+  }).join("");
+  return '<div style="display:flex;align-items:flex-end;gap:14px;height:'+height+'px;padding:0 4px">'+inner+'</div>';
+}
+
+/* ============================== VIEWS ============================== */
+function vOverview(){
+  var healthy = INSTALLS.filter(function(i){return i.health==="Работает";}).length;
+  var failed = INSTALLS.filter(function(i){return i.health==="Сбой";}).length;
+  var stale = AGENTS.filter(function(a){return a.status==="Нет связи";}).length;
+
+  var rows = INSTALLS.slice(0,7).map(function(i){
+    return '<tr><td class="mono">'+i.agent+'</td><td>'+i.product+'</td><td class="mono">'+i.v+'</td>'+
+      '<td>'+statusBadge(i.health)+'</td><td style="color:var(--muted)">'+i.at+'</td></tr>';
+  }).join("");
+
+  var legend = VERSION_DIST.map(function(s){
+    return '<div style="display:flex;align-items:center;gap:8px;font-size:12.5px">'+
+      '<i style="width:10px;height:10px;border-radius:3px;background:'+s.c+'"></i>'+
+      '<span style="flex:1;color:var(--muted)">'+s.label+'</span><b>'+s.n+'</b></div>';
+  }).join("");
+
+  var tl = AUDIT.slice(0,5).map(function(a){
+    var c = {ok:"var(--ok)",info:"var(--info)",warn:"var(--warn)",bad:"var(--bad)"}[a.kind];
+    return '<div class="tl-item"><span class="tdot" style="background:'+c+'"></span>'+
+      '<div style="font-size:13px"><b class="mono">'+a.action+'</b> · '+a.target+'</div>'+
+      '<div style="font-size:11.5px;color:var(--muted)">'+a.actor+' · '+a.t+'</div></div>';
+  }).join("");
+
+  var graceN = LEASES.filter(function(l){return l.state==="Льготный";}).length;
+  var graceBanner = graceN>0 ? '<div class="panel pad" style="display:flex;align-items:center;gap:12px;border-color:rgba(217,119,6,.4);background:rgba(217,119,6,.05);cursor:pointer" data-act="view" data-arg="licenses">'+
+    '<span style="font-size:20px">⏳</span><div style="flex:1"><b>'+graceN+' продукт(а/ов) работают в льготном периоде</b>'+
+    '<div style="color:var(--muted);font-size:12.5px">Лицензия закончилась, продукт ещё работает — у клиента остаётся до 7 дней на продление. Открыть отчёт «Льготный период» →</div></div>'+
+    '<span class="badge b-warn">требует внимания</span></div>' : '';
+
+  return '<div class="grid" style="gap:16px">'+
+    graceBanner+
+    '<div class="grid" style="grid-template-columns:repeat(4,1fr)">'+
+      kpi({icon:"🚢",color:"var(--accent)",label:"Агентов во флоте",value:"35",delta:"32 активны · 1 зарегистрирован · 1 без связи · 1 выведен"})+
+      kpi({icon:"📦",color:"var(--accent2)",label:"Продуктов в каталоге",value:"2",delta:"InvoPay + MI-EDO · 11 релизов"})+
+      kpi({icon:"💚",color:"var(--ok)",label:"Здоровых установок",value:Math.round(healthy/INSTALLS.length*100)+"%",delta:healthy+" работают · "+failed+" со сбоем"})+
+      kpi({icon:"📡",color:"var(--warn)",label:"Агентов без связи",value:stale,delta:"нет heartbeat > 5 мин"})+
+    '</div>'+
+    '<div class="grid" style="grid-template-columns:1.4fr 1fr">'+
+      '<div class="panel"><div class="ph"><h3>Здоровье флота · последние отчёты</h3><span class="spacer"></span>'+
+        '<span class="badge b-info">из agent.installation.reported</span></div>'+
+        '<div class="pb scroll"><table><thead><tr><th>Агент</th><th>Продукт</th><th>Версия</th><th>Здоровье</th><th>Когда</th></tr></thead><tbody>'+rows+'</tbody></table></div></div>'+
+      '<div class="panel pad"><h3 style="margin-bottom:14px">Распределение версий по флоту</h3>'+
+        '<div style="display:flex;gap:18px;align-items:center">'+donut(VERSION_DIST,140,"установок")+
+        '<div class="grid" style="gap:8px;flex:1">'+legend+'</div></div></div>'+
+    '</div>'+
+    '<div class="grid" style="grid-template-columns:1fr 1fr">'+
+      '<div class="panel pad"><h3 style="margin-bottom:14px">Агентов на организацию</h3>'+
+        bars(TENANTS.map(function(t,i){return {label:t.name.split(" ")[0],n:t.agents,c:["#2563eb","#0ea5e9","#38bdf8","#6366f1"][i]};}))+'</div>'+
+      '<div class="panel"><div class="ph"><h3>Аудит · последние действия</h3><span class="spacer"></span>'+
+        '<span class="crumb" data-act="view" data-arg="audit">смотреть всё →</span></div>'+
+        '<div class="pb" style="padding:14px 18px"><div class="timeline">'+tl+'</div></div></div>'+
+    '</div></div>';
+}
+
+function vCatalog(){
+  if(S.catSel){
+    var p = PRODUCTS.filter(function(x){return x.id===S.catSel;})[0];
+    var rels = RELEASES[S.catSel] || [];
+    var rows = rels.map(function(r){
+      var imgs = r.images.map(function(im){
+        return '<div class="mono" style="font-size:11.5px;margin-bottom:3px"><span style="color:var(--text)">'+im.repo+'</span><span class="digest"> @'+im.digest+'…</span></div>';
+      }).join("");
+      var cveCls = r.cve===0?"b-ok":(r.cve<3?"b-warn":"b-bad");
+      return '<tr><td class="mono"><b>'+r.v+'</b></td><td>'+channelBadge(r.ch)+'</td>'+
+        '<td style="color:var(--muted)">'+r.at+'</td>'+
+        '<td style="display:flex;gap:6px;flex-wrap:wrap">'+
+          '<span class="badge '+(r.signed?"b-ok":"b-bad")+'">'+(r.signed?"✓ cosign":"✗ без подписи")+'</span>'+
+          '<span class="badge '+(r.sbom?"b-info":"b-mut")+'">'+(r.sbom?"SBOM":"нет SBOM")+'</span>'+
+          '<span class="badge '+cveCls+'">'+r.cve+' CVE</span></td>'+
+        '<td>'+imgs+'</td>'+
+        '<td style="text-align:right;white-space:nowrap"><button class="btn sm" data-act="rel" data-arg="'+p.id+'" data-ver="'+r.v+'">📝 Патчноут</button> '+
+          '<button class="btn sm" data-act="promoteopen" data-arg="'+p.id+'" data-ver="'+r.v+'">🚀 Канал</button></td></tr>';
+    }).join("");
+    return '<div class="grid" style="gap:16px">'+
+      '<div><span class="crumb" data-act="catback">← Каталог</span><span style="color:var(--faint)"> / '+p.name+'</span></div>'+
+      '<div class="grid" style="grid-template-columns:repeat(4,1fr)">'+
+        kpi({icon:"📦",color:"var(--accent)",label:"Slug",value:p.slug})+
+        kpi({icon:"🏷️",color:"var(--accent2)",label:"Релизов",value:rels.length})+
+        kpi({icon:"⭐",color:"var(--ok)",label:"Последняя версия",value:p.latest})+
+        kpi({icon:"🚢",color:"var(--info)",label:"Установлен на агентах",value:p.agents})+
+      '</div>'+
+      '<div class="panel"><div class="ph"><h3>Релизы и образы</h3><span class="spacer"></span>'+
+        '<button class="btn primary sm" data-act="relnewopen" data-arg="'+p.id+'">+ Новый релиз</button></div>'+
+        '<div class="pb scroll"><table><thead><tr><th>Версия</th><th>Канал</th><th>Опубликован</th><th>Цепочка поставки</th><th>Образы (pin по digest)</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div></div>'+
+    '</div>';
+  }
+  var cards = PRODUCTS.map(function(p){
+    return '<div class="panel pad" style="cursor:pointer" data-act="cat" data-arg="'+p.id+'">'+
+      '<div style="display:flex;gap:14px">'+
+        '<div style="width:46px;height:46px;border-radius:11px;background:var(--panel2);display:grid;place-items:center;font-size:22px;flex:none">📦</div>'+
+        '<div style="flex:1"><div style="display:flex;align-items:center;gap:10px"><h3>'+p.name+'</h3><span class="chip mono">'+p.slug+'</span></div>'+
+        '<div style="color:var(--muted);font-size:12.5px;margin:4px 0 12px">'+p.desc+'</div>'+
+        '<div style="display:flex;gap:18px;font-size:12.5px"><span>🏷️ <b>'+p.releases+'</b> релизов</span>'+
+        '<span>⭐ последняя <b class="mono">'+p.latest+'</b></span><span>🚢 <b>'+p.agents+'</b> агентов</span></div></div>'+
+        '<div style="align-self:center;color:var(--faint)">→</div></div></div>';
+  }).join("");
+  return '<div class="grid" style="grid-template-columns:repeat(2,1fr)">'+cards+'</div>';
+}
+
+function vFleet(){
+  var tabs = '<div style="display:flex;gap:8px;margin-bottom:16px">'+
+    '<button class="btn sm '+(S.fleetTab==="agents"?"primary":"")+'" data-act="fleettab" data-arg="agents">Агенты ('+AGENTS.length+')</button>'+
+    '<button class="btn sm '+(S.fleetTab==="tenants"?"primary":"")+'" data-act="fleettab" data-arg="tenants">Организации ('+TENANTS.length+')</button></div>';
+  var body;
+  if(S.fleetTab==="agents"){
+    var rows = AGENTS.map(function(a){
+      return '<tr class="click"><td class="mono">'+a.id+'</td><td class="mono">'+a.host+'</td><td>'+a.tenant+'</td>'+
+        '<td>'+statusBadge(a.status)+'</td><td class="mono">'+a.ver+'</td>'+
+        '<td>'+a.installs+'</td><td style="color:var(--muted)">'+a.seen+'</td></tr>';
+    }).join("");
+    body = '<div class="panel"><div class="ph"><h3>Флот агентов</h3><span class="spacer"></span>'+
+      '<button class="btn primary sm" data-act="enrollopen">+ Регистрация агента</button></div>'+
+      '<div class="pb scroll"><table><thead><tr><th>Agent ID</th><th>Hostname</th><th>Организация</th><th>Статус</th>'+
+      '<th>Версия апплайанса</th><th>Установок</th><th>Последняя связь</th></tr></thead><tbody>'+rows+'</tbody></table></div></div>';
+  } else {
+    var rows2 = TENANTS.map(function(t){
+      return '<tr class="click"><td><b>'+t.name+'</b></td><td><span class="chip">'+t.plan+'</span></td>'+
+        '<td>'+t.agents+'</td><td>'+t.grants+'</td><td style="text-align:right;color:var(--faint)">→</td></tr>';
+    }).join("");
+    body = '<div class="panel"><div class="ph"><h3>Организации (tenants)</h3><span class="spacer"></span>'+
+      '<button class="btn primary sm" data-act="tenantopen">+ Организация</button></div>'+
+      '<div class="pb scroll"><table><thead><tr><th>Tenant</th><th>План</th><th>Агентов</th><th>Грантов</th><th></th></tr></thead><tbody>'+rows2+'</tbody></table></div></div>';
+  }
+  return '<div class="grid" style="gap:16px">'+tabs+body+'</div>';
+}
+
+function vGrants(){
+  var rows = GRANTS.map(function(g){
+    var revokable = g.status==="Действует" || g.status==="Истекает";
+    return '<tr><td>'+g.tenant+'</td><td><b>'+g.product+'</b></td><td>'+channelBadge(g.channel)+'</td>'+
+      '<td><span class="chip">'+g.scope+'</span></td>'+
+      '<td class="mono" style="color:'+(g.agent==="—"?"var(--faint)":"var(--text)")+'">'+g.agent+'</td>'+
+      '<td class="mono" style="color:var(--muted)">'+g.exp+'</td><td>'+statusBadge(g.status)+'</td>'+
+      '<td style="text-align:right">'+(revokable
+        ? '<button class="btn danger sm" data-act="revoke" data-arg="'+g.id+'">Отозвать</button>'
+        : '<span class="chip">—</span>')+'</td></tr>';
+  }).join("");
+  var c = function(st){return GRANTS.filter(function(g){return g.status===st;}).length;};
+  return '<div class="grid" style="gap:16px">'+
+    '<div class="grid" style="grid-template-columns:repeat(4,1fr)">'+
+      kpi({icon:"🔑",color:"var(--accent)",label:"Всего грантов",value:GRANTS.length})+
+      kpi({icon:"✅",color:"var(--ok)",label:"Действуют",value:c("Действует")})+
+      kpi({icon:"⏳",color:"var(--warn)",label:"Истекают",value:c("Истекает")})+
+      kpi({icon:"🚫",color:"var(--bad)",label:"Истекли / отозваны",value:c("Истёк")+c("Отозван")})+
+    '</div>'+
+    '<div class="panel"><div class="ph"><h3>Гранты доступа · продукт ↔ организация/агент</h3><span class="spacer"></span>'+
+      '<button class="btn primary sm" data-act="grantopen">+ Выдать грант</button></div>'+
+      '<div class="pb scroll"><table><thead><tr><th>Организация</th><th>Продукт</th><th>Канал</th><th>Scope</th>'+
+      '<th>Агент</th><th>Истекает</th><th>Статус</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div></div></div>';
+}
+
+function vTelemetry(){
+  var rows = INSTALLS.map(function(i){
+    var ls = licState(i.agent, i.product);
+    return '<tr><td class="mono">'+i.agent+'</td><td>'+i.product+'</td><td class="mono">'+i.v+'</td>'+
+      '<td>'+statusBadge(i.health)+'</td>'+
+      '<td>'+(ls==="—"?'<span class="chip">—</span>':statusBadge(ls))+'</td>'+
+      '<td style="color:var(--muted)">'+i.at+'</td></tr>';
+  }).join("");
+  return '<div class="panel"><div class="ph"><h3>Installations · материализованный срез telemetry-service</h3><span class="spacer"></span>'+
+    '<span class="badge b-info">источник: Kafka agent.installation.reported</span></div>'+
+    '<div class="pb scroll"><table><thead><tr><th>Агент</th><th>Продукт</th><th>Версия</th><th>Здоровье</th><th>Лицензия</th><th>Отчёт получен</th></tr></thead><tbody>'+rows+'</tbody></table></div></div>';
+}
+
+function vLicenses(){
+  var grace = LEASES.filter(function(l){return l.state==="Льготный";});
+  var valid = LEASES.filter(function(l){return l.state==="Действует";}).length;
+  var hard  = LEASES.filter(function(l){return l.state==="Остановлен";}).length;
+
+  var graceRows = LEASES.map(function(l){
+    var pct = l.left===null ? 100 : Math.round((l.left/7)*100);
+    var leftHtml = l.state==="Льготный"
+      ? '<div style="min-width:120px"><div style="display:flex;justify-content:space-between;font-size:11.5px;color:var(--muted);margin-bottom:4px"><span>осталось '+l.left+' дн.</span><span>из 7</span></div>'+
+        '<div style="height:6px;background:var(--panel2);border-radius:99px;overflow:hidden"><span style="display:block;height:100%;width:'+pct+'%;background:linear-gradient(90deg,#f59e0b,#f97316)"></span></div></div>'
+      : (l.state==="Остановлен" ? '<span class="badge b-bad">грейс исчерпан</span>' : '<span class="chip">—</span>');
+    var act = (l.state==="Льготный")
+      ? '<button class="btn sm" data-act="leaserenew" data-arg="'+l.jti+'">Продлить</button> <button class="btn danger sm" data-act="leaserevoke" data-arg="'+l.jti+'">Отозвать</button>'
+      : (l.state==="Действует" ? '<button class="btn danger sm" data-act="leaserevoke" data-arg="'+l.jti+'">Отозвать</button>' : '<span class="chip">—</span>');
+    return '<tr><td>'+l.tenant+'</td><td><b>'+l.product+'</b></td><td class="mono">'+l.agent+'</td>'+
+      '<td>'+statusBadge(l.state)+'</td><td>'+leftHtml+'</td>'+
+      '<td class="mono" style="color:var(--muted)">'+l.grace+'</td>'+
+      '<td class="mono" style="color:var(--faint)">'+l.jti+'</td>'+
+      '<td style="text-align:right;white-space:nowrap">'+act+'</td></tr>';
+  }).join("");
+
+  var polRows = PRODUCTS.map(function(p){
+    var pol = policyOf(p.id);
+    var hsB = pol.hardstop==="deny"?"b-bad":(pol.hardstop==="shutdown"?"b-bad":"b-warn");
+    return '<tr><td><b>'+p.name+'</b> <span class="chip mono">'+p.slug+'</span></td>'+
+      '<td class="mono">'+pol.ttl+' ч</td>'+
+      '<td><span class="badge b-info">'+pol.grace+' дн.</span></td>'+
+      '<td><span class="badge '+hsB+'">'+pol.hardstop+'</span></td>'+
+      '<td class="mono">'+pol.max+'</td>'+
+      '<td style="text-align:right"><button class="btn sm" data-act="policyopen" data-arg="'+p.id+'">⚙ Изменить</button></td></tr>';
+  }).join("");
+
+  return '<div class="grid" style="gap:16px">'+
+    '<div class="grid" style="grid-template-columns:repeat(4,1fr)">'+
+      kpi({icon:"🛡️",color:"var(--accent)",label:"Активных лизов",value:LEASES.length})+
+      kpi({icon:"✅",color:"var(--ok)",label:"Действуют",value:valid})+
+      kpi({icon:"⏳",color:"var(--warn)",label:"В льготном периоде",value:grace.length,delta:grace.length?"мин. остаток "+Math.min.apply(null,grace.map(function(g){return g.left;}))+" дн.":""})+
+      kpi({icon:"⛔",color:"var(--bad)",label:"Остановлены (HardStop)",value:hard})+
+    '</div>'+
+    '<div class="panel"><div class="ph"><h3>Отчёт «Льготный период» · какие продукты работают после окончания лицензии</h3><span class="spacer"></span>'+
+      '<span class="badge b-warn">GET /api/licenses/grace</span></div>'+
+      '<div class="pb scroll"><table><thead><tr><th>Организация</th><th>Продукт</th><th>Агент</th><th>Состояние</th>'+
+      '<th>Осталось</th><th>Грейс до</th><th>Лиз (jti)</th><th></th></tr></thead><tbody>'+graceRows+'</tbody></table></div></div>'+
+    '<div class="panel"><div class="ph"><h3>Политика лицензирования · per-product</h3><span class="spacer"></span>'+
+      '<span class="badge b-info">PUT /api/products/{id}/license-policy</span></div>'+
+      '<div class="pb scroll"><table><thead><tr><th>Продукт</th><th>TTL лиза</th><th>Льготный период</th><th>Режим HardStop</th><th>Max инстансов</th><th></th></tr></thead><tbody>'+polRows+'</tbody></table></div></div>'+
+  '</div>';
+}
+
+function vAudit(){
+  var rows = AUDIT.map(function(a){
+    var c = {ok:"b-ok",info:"b-info",warn:"b-warn",bad:"b-bad"}[a.kind];
+    return '<tr><td class="mono" style="color:var(--muted)">'+a.t+'</td><td class="mono">'+a.actor+'</td>'+
+      '<td><span class="badge '+c+'">'+a.action+'</span></td><td>'+a.target+'</td></tr>';
+  }).join("");
+  return '<div class="panel"><div class="ph"><h3>Неизменяемый аудит · audit.operator.action</h3><span class="spacer"></span>'+
+    '<span class="badge b-mut">только добавление</span></div>'+
+    '<div class="pb scroll"><table><thead><tr><th>Время (UTC)</th><th>Актор</th><th>Действие</th><th>Цель</th></tr></thead><tbody>'+rows+'</tbody></table></div></div>';
+}
+
+/* ============================== MODALS ============================== */
+function relModalHtml(){
+  if(!S.relModal) return "";
+  var rels = RELEASES[S.relModal.pid] || [];
+  var r = rels.filter(function(x){return x.v===S.relModal.ver;})[0];
+  var p = PRODUCTS.filter(function(x){return x.id===S.relModal.pid;})[0];
+  if(!r) return "";
+  var items = r.notes.map(function(n){return '<li>'+n+'</li>';}).join("");
+  return '<div class="modal-bg" data-act="relclose"><div class="modal">'+
+    '<div class="mh"><div><h3 style="margin:0">Релиз-ноуты · '+p.name+' <span class="mono">'+r.v+'</span></h3>'+
+      '<div style="font-size:12px;color:var(--muted);margin-top:4px;display:flex;gap:8px;align-items:center">'+
+        channelBadge(r.ch)+' · опубликован '+r.at+'</div></div>'+
+      '<span class="x" data-act="relclose">×</span></div>'+
+    '<div class="mb"><ul class="notes">'+items+'</ul></div>'+
+    '<div class="mf"><button class="btn" data-act="relclose">Закрыть</button></div></div></div>';
+}
+
+function grantModalHtml(){
+  if(!S.grantModal) return "";
+  var tOpts = TENANTS.map(function(t){return '<option>'+t.name+'</option>';}).join("");
+  var pOpts = PRODUCTS.map(function(p){return '<option>'+p.name+'</option>';}).join("");
+  return '<div class="modal-bg" data-act="grantclose"><div class="modal">'+
+    '<div class="mh"><div><h3 style="margin:0">Выдать грант доступа</h3>'+
+      '<div style="font-size:12px;color:var(--muted);margin-top:3px">Продукт станет доступен агентам организации</div></div>'+
+      '<span class="x" data-act="grantclose">×</span></div>'+
+    '<div class="mb">'+
+      '<div class="field"><label>Организация</label><select class="input" id="g-tenant">'+tOpts+'</select></div>'+
+      '<div class="field"><label>Продукт</label><select class="input" id="g-product">'+pOpts+'</select></div>'+
+      '<div style="display:flex;gap:14px">'+
+        '<div class="field" style="flex:1"><label>Канал</label><select class="input" id="g-channel"><option>stable</option><option>beta</option><option>edge</option></select></div>'+
+        '<div class="field" style="flex:1"><label>Scope</label><select class="input" id="g-scope"><option>TENANT</option><option>AGENT</option></select></div>'+
+      '</div>'+
+      '<div class="field"><label>Действует до</label><input class="input" id="g-exp" type="date" value="2026-12-31"/></div>'+
+    '</div>'+
+    '<div class="mf"><button class="btn" data-act="grantclose">Отмена</button>'+
+      '<button class="btn primary" data-act="grantsubmit">Выдать грант</button></div></div></div>';
+}
+
+function policyModalHtml(){
+  if(!S.policyModal) return "";
+  var p = PRODUCTS.filter(function(x){return x.id===S.policyModal;})[0];
+  var pol = policyOf(p.id);
+  var opt = function(v,cur){ return '<option'+(v===cur?' selected':'')+'>'+v+'</option>'; };
+  return '<div class="modal-bg" data-act="policyclose"><div class="modal">'+
+    '<div class="mh"><div><h3 style="margin:0">Политика лицензии · '+p.name+'</h3>'+
+      '<div style="font-size:12px;color:var(--muted);margin-top:3px">Баланс защиты и устойчивости к простоям (§2.15)</div></div>'+
+      '<span class="x" data-act="policyclose">×</span></div>'+
+    '<div class="mb">'+
+      '<div style="display:flex;gap:14px">'+
+        '<div class="field" style="flex:1"><label>TTL лиза (часы)</label><input class="input mono" id="pol-ttl" value="'+pol.ttl+'"/></div>'+
+        '<div class="field" style="flex:1"><label>Льготный период (дней)</label><input class="input mono" id="pol-grace" value="'+pol.grace+'"/></div>'+
+      '</div>'+
+      '<div style="display:flex;gap:14px">'+
+        '<div class="field" style="flex:1"><label>Режим HardStop</label><select class="input" id="pol-hs">'+opt("read-only",pol.hardstop)+opt("deny",pol.hardstop)+opt("shutdown",pol.hardstop)+'</select></div>'+
+        '<div class="field" style="flex:1"><label>Max инстансов</label><input class="input mono" id="pol-max" value="'+pol.max+'"/></div>'+
+      '</div>'+
+      '<div class="note" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px 14px;font-size:12.5px;color:var(--muted)">'+
+        'Льготный период 7 дней — рекомендованное значение: продукт переживает простои Control Plane и сети, а неплатящий клиент гарантированно останавливается.</div>'+
+    '</div>'+
+    '<div class="mf"><button class="btn" data-act="policyclose">Отмена</button>'+
+      '<button class="btn primary" data-act="policysave">Сохранить политику</button></div></div></div>';
+}
+
+function relNewModalHtml(){
+  if(!S.relNew) return "";
+  var p = PRODUCTS.filter(function(x){return x.id===S.relNew;})[0];
+  return '<div class="modal-bg" data-act="relnewclose"><div class="modal">'+
+    '<div class="mh"><div><h3 style="margin:0">Публикация релиза · '+p.name+'</h3>'+
+      '<div style="font-size:12px;color:var(--muted);margin-top:3px">catalog проверит semver, compose, схему конфига, подпись и digest (S2)</div></div>'+
+      '<span class="x" data-act="relnewclose">×</span></div>'+
+    '<div class="mb">'+
+      '<div style="display:flex;gap:14px">'+
+        '<div class="field" style="flex:1"><label>Версия (semver)</label><input class="input mono" id="rl-v" placeholder="напр. 2.4.0"/></div>'+
+        '<div class="field" style="flex:1"><label>Канал публикации</label><select class="input" id="rl-ch"><option>beta</option><option>edge</option><option>stable</option></select></div>'+
+      '</div>'+
+      '<div class="field"><label>Релиз-ноуты (по одной строке)</label><textarea class="input" id="rl-notes" rows="4" placeholder="Новая функция…&#10;Исправление…"></textarea></div>'+
+      '<div class="field"><label>Образ (repo)</label><input class="input mono" id="rl-img" placeholder="harbor/'+p.slug+'/gateway"/></div>'+
+      '<div class="note" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px 14px;font-size:12.5px;color:var(--muted)">'+
+        'При публикации образ подписывается cosign и фиксируется по digest, формируется SBOM. Релиз неизменяем.</div>'+
+    '</div>'+
+    '<div class="mf"><button class="btn" data-act="relnewclose">Отмена</button>'+
+      '<button class="btn primary" data-act="relnewsubmit">Опубликовать релиз</button></div></div></div>';
+}
+
+function promoteModalHtml(){
+  if(!S.promote) return "";
+  var p = PRODUCTS.filter(function(x){return x.id===S.promote.pid;})[0];
+  return '<div class="modal-bg" data-act="promoteclose"><div class="modal" style="width:min(460px,100%)">'+
+    '<div class="mh"><div><h3 style="margin:0">Продвижение по каналам</h3>'+
+      '<div style="font-size:12px;color:var(--muted);margin-top:3px">'+p.name+' <span class="mono">'+S.promote.ver+'</span></div></div>'+
+      '<span class="x" data-act="promoteclose">×</span></div>'+
+    '<div class="mb">'+
+      '<div class="field"><label>Целевой канал стабильности</label><select class="input" id="pr-ch"><option>stable</option><option>beta</option><option>edge</option></select></div>'+
+      '<div class="note" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px 14px;font-size:12.5px;color:var(--muted)">'+
+        '<b>stable</b> — продакшн · <b>beta</b> — пилоты/staging · <b>edge</b> — ранний доступ. Гранты выдаются под конкретный канал.</div>'+
+    '</div>'+
+    '<div class="mf"><button class="btn" data-act="promoteclose">Отмена</button>'+
+      '<button class="btn primary" data-act="promotesubmit">Продвинуть</button></div></div></div>';
+}
+
+function enrollModalHtml(){
+  if(!S.enroll) return "";
+  var tOpts = TENANTS.map(function(t){return '<option>'+t.name+'</option>';}).join("");
+  var body = S.enrollResult
+    ? '<div class="mb">'+
+        '<div class="note" style="background:rgba(22,163,74,.06);border:1px solid rgba(22,163,74,.3);border-radius:10px;padding:14px;color:var(--text)">'+
+          '✓ Агент <b class="mono">'+S.enrollResult.id+'</b> заведён (статус «Зарегистрирован»). Передайте организации установщик и одноразовый токен.</div>'+
+        '<div class="field" style="margin-top:14px"><label>Одноразовый enrollment-токен (короткий TTL)</label><input class="input mono" readonly value="'+S.enrollResult.token+'"/></div>'+
+        '<div class="field"><label>Ссылка на установщик апплайанса</label><input class="input mono" readonly value="https://dl.inversionwharf.io/agent/installer.sh?a='+S.enrollResult.id+'"/></div>'+
+        '<div class="hint" style="font-size:11.5px;color:var(--faint)">Агент вводит токен при первом старте → CSR → Vault PKI подписывает mTLS-сертификат (S1).</div>'+
+      '</div>'+
+      '<div class="mf"><button class="btn primary" data-act="enrollclose">Готово</button></div>'
+    : '<div class="mb">'+
+        '<div class="field"><label>Организация</label><select class="input" id="en-tenant">'+tOpts+'</select></div>'+
+        '<div class="field"><label>Hostname сервера клиента</label><input class="input mono" id="en-host" placeholder="prod-eu-03"/></div>'+
+        '<div class="note" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px 14px;font-size:12.5px;color:var(--muted)">'+
+          'Будет создан агент и сгенерирован одноразовый токен. Docker предустанавливать не нужно — он встроен в апплайанс.</div>'+
+      '</div>'+
+      '<div class="mf"><button class="btn" data-act="enrollclose">Отмена</button>'+
+        '<button class="btn primary" data-act="enrollsubmit">Создать токен</button></div>';
+  return '<div class="modal-bg" data-act="enrollclose"><div class="modal" style="width:min(520px,100%)">'+
+    '<div class="mh"><div><h3 style="margin:0">Регистрация агента (enrollment)</h3>'+
+      '<div style="font-size:12px;color:var(--muted);margin-top:3px">Сценарий S1 · fleet-service + Vault PKI</div></div>'+
+      '<span class="x" data-act="enrollclose">×</span></div>'+body+'</div></div>';
+}
+
+function tenantModalHtml(){
+  if(!S.tenantModal) return "";
+  return '<div class="modal-bg" data-act="tenantclose"><div class="modal" style="width:min(460px,100%)">'+
+    '<div class="mh"><div><h3 style="margin:0">Новая организация (tenant)</h3></div>'+
+      '<span class="x" data-act="tenantclose">×</span></div>'+
+    '<div class="mb">'+
+      '<div class="field"><label>Название</label><input class="input" id="tn-name" placeholder="Например, Stark Industries"/></div>'+
+      '<div class="field"><label>План</label><select class="input" id="tn-plan"><option>Trial</option><option>Business</option><option>Enterprise</option></select></div>'+
+    '</div>'+
+    '<div class="mf"><button class="btn" data-act="tenantclose">Отмена</button>'+
+      '<button class="btn primary" data-act="tenantsubmit">Создать</button></div></div></div>';
+}
+
+/* ============================== SHELL ============================== */
+var NAV = [
+  { id:"overview", ic:"📊", label:"Обзор" },
+  { id:"catalog",  ic:"📦", label:"Каталог" },
+  { id:"fleet",    ic:"🚢", label:"Флот" },
+  { id:"grants",   ic:"🔑", label:"Гранты" },
+  { id:"licenses", ic:"🛡️", label:"Лицензии" },
+  { id:"telemetry",ic:"📡", label:"Телеметрия" },
+  { id:"audit",    ic:"📜", label:"Аудит" }
+];
+var TITLES = {
+  overview:["Обзор платформы","Состояние флота, каталога и доступов"],
+  catalog:["Каталог продуктов","Продукты, релизы, каналы и образы (pin по digest)"],
+  fleet:["Флот","Организации-клиенты и их агенты-апплайансы"],
+  grants:["Гранты доступа","Какие продукты доступны каким организациям и агентам"],
+  licenses:["Лицензии","Политика, лизы и льготный период (рантайм-лицензирование B9)"],
+  telemetry:["Телеметрия","Фактически установленное состояние, сообщённое агентами"],
+  audit:["Аудит","Неизменяемый журнал операторских действий и enrollment'ов"]
+};
+
+var S = { view:"overview", catSel:null, fleetTab:"agents", relModal:null, grantModal:false,
+  policyModal:null, relNew:null, promote:null, enroll:false, enrollResult:null, tenantModal:false };
+var $root = document.getElementById("root");
+var nextGrantId = 7, nextAgentSeq = 1;
+
+function render(){
+  var nav = NAV.map(function(n){
+    return '<div class="nav '+(S.view===n.id?"active":"")+'" data-act="view" data-arg="'+n.id+'">'+
+      '<span class="ic">'+n.ic+'</span><span>'+n.label+'</span></div>';
+  }).join("");
+  var t = TITLES[S.view];
+  var content = S.view==="overview"?vOverview():S.view==="catalog"?vCatalog():
+    S.view==="fleet"?vFleet():S.view==="grants"?vGrants():
+    S.view==="licenses"?vLicenses():
+    S.view==="telemetry"?vTelemetry():vAudit();
+
+  $root.innerHTML =
+    '<div class="app"><aside class="sidebar">'+
+      '<div class="brand"><div class="logo">⚓</div><div><b>InversionWharf</b><small>Control Plane</small></div></div>'+
+      '<div class="navlbl">Платформа</div>'+nav+
+      '<div class="navlbl">Реестр</div>'+
+      '<div class="nav"><span class="ic">🐳</span><span>Harbor</span><span class="badge b-ok" style="margin-left:auto"><span class="dot" style="background:var(--ok)"></span>в строю</span></div>'+
+      '<div class="nav"><span class="ic">🔐</span><span>Vault PKI</span><span class="badge b-ok" style="margin-left:auto"><span class="dot" style="background:var(--ok)"></span>в строю</span></div>'+
+      '<div class="sidefoot"><div class="avatar">A</div><div style="line-height:1.3"><div style="font-size:13px;font-weight:600">alice</div>'+
+        '<div style="font-size:11px;color:var(--muted)">OPERATOR · OIDC</div></div></div>'+
+    '</aside>'+
+    '<main class="main"><div class="topbar"><div><h1>'+t[0]+'</h1><div class="sub">'+t[1]+'</div></div>'+
+      '<div class="spacer"></div><input class="search" placeholder="Поиск продукта, агента, гранта…"/>'+
+      '<button class="btn">⟳ Обновить</button></div>'+content+'</main></div>'+
+    relModalHtml()+grantModalHtml()+policyModalHtml()+relNewModalHtml()+promoteModalHtml()+enrollModalHtml()+tenantModalHtml();
+}
+
+function isBgClick(t, e){ return t.classList.contains("modal-bg") ? (e.target===t) : true; }
+
+$root.addEventListener("click", function(e){
+  var t = e.target.closest("[data-act]"); if(!t) return;
+  var act = t.getAttribute("data-act"), arg = t.getAttribute("data-arg");
+  if(act==="view"){ S.view=arg; S.catSel=null; render(); return; }
+  if(act==="cat"){ S.catSel=arg; render(); return; }
+  if(act==="catback"){ S.catSel=null; render(); return; }
+  if(act==="fleettab"){ S.fleetTab=arg; render(); return; }
+  if(act==="rel"){ S.relModal={pid:arg, ver:t.getAttribute("data-ver")}; render(); return; }
+  if(act==="relclose"){ if(!isBgClick(t,e)) return; S.relModal=null; render(); return; }
+  if(act==="grantopen"){ S.grantModal=true; render(); return; }
+  if(act==="grantclose"){ if(!isBgClick(t,e)) return; S.grantModal=false; render(); return; }
+  if(act==="grantsubmit"){
+    var g = {
+      id:"g-"+String(++nextGrantId).padStart(3,"0"),
+      tenant: document.getElementById("g-tenant").value,
+      product: document.getElementById("g-product").value,
+      channel: document.getElementById("g-channel").value,
+      scope: document.getElementById("g-scope").value,
+      agent: "—",
+      exp: document.getElementById("g-exp").value || "—",
+      status: "Действует"
+    };
+    GRANTS.push(g); S.grantModal=false; render(); return;
+  }
+  if(act==="revoke"){
+    var gr = GRANTS.filter(function(x){return x.id===arg;})[0];
+    if(gr) gr.status = "Отозван";
+    render(); return;
+  }
+  /* ---- лицензии: политика и лизы ---- */
+  if(act==="policyopen"){ S.policyModal=arg; render(); return; }
+  if(act==="policyclose"){ if(!isBgClick(t,e)) return; S.policyModal=null; render(); return; }
+  if(act==="policysave"){
+    var pol = policyOf(S.policyModal);
+    pol.ttl = parseInt(document.getElementById("pol-ttl").value,10)||pol.ttl;
+    pol.grace = parseInt(document.getElementById("pol-grace").value,10)||pol.grace;
+    pol.hardstop = document.getElementById("pol-hs").value;
+    pol.max = parseInt(document.getElementById("pol-max").value,10)||pol.max;
+    LIC_POLICY[S.policyModal] = pol;
+    AUDIT.unshift({t:"сейчас", actor:"op:alice", action:"license.policy.update", target:S.policyModal+" грейс="+pol.grace+"д", kind:"info"});
+    S.policyModal=null; render(); return;
+  }
+  if(act==="leaserenew"){
+    var l = LEASES.filter(function(x){return x.jti===arg;})[0];
+    if(l){ l.state="Действует"; l.grace="—"; l.left=null;
+      AUDIT.unshift({t:"сейчас",actor:"op:alice",action:"license.lease.renew",target:l.tenant+" / "+l.product,kind:"ok"}); }
+    render(); return;
+  }
+  if(act==="leaserevoke"){
+    var l2 = LEASES.filter(function(x){return x.jti===arg;})[0];
+    if(l2){ l2.state="Остановлен"; l2.left=0;
+      AUDIT.unshift({t:"сейчас",actor:"op:alice",action:"license.lease.revoke",target:l2.tenant+" / "+l2.product+" ("+l2.jti+")",kind:"bad"}); }
+    render(); return;
+  }
+  /* ---- публикация релиза ---- */
+  if(act==="relnewopen"){ S.relNew=arg; render(); return; }
+  if(act==="relnewclose"){ if(!isBgClick(t,e)) return; S.relNew=null; render(); return; }
+  if(act==="relnewsubmit"){
+    var pid = S.relNew, v = (document.getElementById("rl-v").value||"").trim();
+    if(!v){ document.getElementById("rl-v").focus(); return; }
+    var ch = document.getElementById("rl-ch").value;
+    var notes = (document.getElementById("rl-notes").value||"").split("\n").map(function(s){return s.trim();}).filter(Boolean);
+    var repo = (document.getElementById("rl-img").value||"harbor/new/image").trim();
+    if(!notes.length) notes=["Релиз "+v+" опубликован."];
+    RELEASES[pid] = RELEASES[pid]||[];
+    RELEASES[pid].unshift({ v:v, ch:ch, at:"сейчас", signed:true, sbom:true, cve:0,
+      images:[{repo:repo, digest:"sha256:"+Math.random().toString(16).slice(2,12)}], notes:notes });
+    var pr = PRODUCTS.filter(function(x){return x.id===pid;})[0]; if(pr){ pr.releases++; pr.latest=v; }
+    AUDIT.unshift({t:"сейчас",actor:"op:alice",action:"release.publish",target:(pr?pr.slug:pid)+" "+v,kind:"info"});
+    S.relNew=null; render(); return;
+  }
+  /* ---- продвижение по каналам ---- */
+  if(act==="promoteopen"){ S.promote={pid:arg, ver:t.getAttribute("data-ver")}; render(); return; }
+  if(act==="promoteclose"){ if(!isBgClick(t,e)) return; S.promote=null; render(); return; }
+  if(act==="promotesubmit"){
+    var ch2 = document.getElementById("pr-ch").value;
+    var rels = RELEASES[S.promote.pid]||[];
+    var r = rels.filter(function(x){return x.v===S.promote.ver;})[0];
+    if(r) r.ch = ch2;
+    AUDIT.unshift({t:"сейчас",actor:"op:alice",action:"release.promote → "+ch2,target:S.promote.ver,kind:"ok"});
+    S.promote=null; render(); return;
+  }
+  /* ---- enrollment агента ---- */
+  if(act==="enrollopen"){ S.enroll=true; S.enrollResult=null; render(); return; }
+  if(act==="enrollclose"){ if(!isBgClick(t,e)) return; S.enroll=false; S.enrollResult=null; render(); return; }
+  if(act==="enrollsubmit"){
+    var tn = document.getElementById("en-tenant").value;
+    var host = (document.getElementById("en-host").value||"new-host-"+nextAgentSeq).trim();
+    var id = "ag-"+Math.random().toString(16).slice(2,6);
+    AGENTS.push({ id:id, host:host, tenant:tn, status:"Зарегистрирован", ver:"—", seen:"никогда", installs:0 });
+    nextAgentSeq++;
+    S.enrollResult = { id:id, token:"enr_"+Math.random().toString(36).slice(2,10).toUpperCase() };
+    AUDIT.unshift({t:"сейчас",actor:"op:alice",action:"agent.register",target:tn+" / "+host,kind:"info"});
+    render(); return;
+  }
+  /* ---- организация ---- */
+  if(act==="tenantopen"){ S.tenantModal=true; render(); return; }
+  if(act==="tenantclose"){ if(!isBgClick(t,e)) return; S.tenantModal=false; render(); return; }
+  if(act==="tenantsubmit"){
+    var nm = (document.getElementById("tn-name").value||"").trim();
+    if(!nm){ document.getElementById("tn-name").focus(); return; }
+    TENANTS.push({ id:"t-"+Math.random().toString(16).slice(2,6), name:nm, agents:0, grants:0, plan:document.getElementById("tn-plan").value });
+    AUDIT.unshift({t:"сейчас",actor:"op:alice",action:"tenant.create",target:nm,kind:"info"});
+    S.tenantModal=false; render(); return;
+  }
+});
+
+render();
+</script>
+</body>
+</html>
