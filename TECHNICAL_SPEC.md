@@ -567,6 +567,7 @@ flowchart LR
 | `fleet.heartbeat` | agent-gateway | telemetry-service | Heartbeat агентов |
 | `agent.installation.reported` | agent-gateway | telemetry-service | Отчёт об установленных продуктах/версиях (сценарий `S5`) |
 | `catalog.release.published` | catalog-service | telemetry-service | Публикация нового релиза (сценарий `S2`) |
+| `entitlement.grant.status.changed` | entitlement-service | fleet-service, агент (сигнал через опрос) | Смена статуса гранта (`Expired`/`Revoked`) → fleet-service сужает Harbor scope, агент запускает cleanup образов |
 | `audit.operator.action` | все сервисы | telemetry-service | Неизменяемый аудит (§3.8) |
 
 Сообщения версионируются (schema registry, Avro/JSON Schema); доставка — at-least-once с идемпотентными консьюмерами.
@@ -612,12 +613,12 @@ OAuth2/OIDC-провайдер для операторов/админов и cli
 
 ### fleet-service (`B3`)
 - **Данные:** `tenant`, `agent(tenant_id, hostname, appliance_version, last_seen, status)`, `agent_identity(agent_id, cert_serial, not_after, status)`, `enrollment_token(agent_id, token_hash, status, expires_at)`.
-- **Поведение:** генерация одноразового токена; при enrollment — подпись CSR через Vault PKI, выдача robot-кредов Harbor по scope tenant; отзыв идентичности при decommission (`S1`; безопасность — §3.2, §3.4).
+- **Поведение:** генерация **персонализированного установщика** (подписанный архив с вшитым `enrollmentToken` — токен не передаётся отдельно, §2.9 `S1`); при enrollment — подпись CSR через Vault PKI, выдача robot-кредов Harbor по scope tenant; отзыв идентичности при decommission. Консьюмер `entitlement.grant.status.changed`: при `Expired`/`Revoked` вызывает Harbor API → удаляет репозиторий отозванного продукта из scope robot-аккаунта tenant (`S1`; безопасность — §3.2, §3.4, §3.5).
 - **Ошибки:** 409 (повтор токена), 410 (истёк), 404, 400.
 
 ### entitlement-service (`B4`, `B5`)
 - **Данные:** `grant(tenant_id, product_id, agent_id nullable, channel, expires_at, status)`.
-- **Внутреннее устройство:** `GrantService` (CRUD/проверка действительности); `AvailableProductsService` (по идентичности агента собирает действующие гранты, обогащает версиями/деталями/релиз-ноутами из catalog через `CatalogClient` Feign+CB, кэширует в Redis, флаг `stale` при fallback) — это и есть API «что мне доступно» для `S4`.
+- **Внутреннее устройство:** `GrantService` (CRUD/проверка действительности); `AvailableProductsService` (по идентичности агента собирает действующие гранты, обогащает версиями/деталями/релиз-ноутами из catalog через `CatalogClient` Feign+CB, кэширует в Redis, флаг `stale` при fallback) — это и есть API «что мне доступно» для `S4`. При переходе гранта в `Expired` или `Revoked` публикует событие `entitlement.grant.status.changed` (productId, tenantId, agentId?, newStatus) в Kafka.
 - **Ошибки:** 403 (нет действующего гранта), 404, 503 (CB без кэша), 400.
 
 ### license-service (`B9`)
@@ -635,12 +636,13 @@ OAuth2/OIDC-провайдер для операторов/админов и cli
 ## 2.8 Агент-апплайанс (Go) — реализация `B5`, `B6`, `B9`
 Go-демон на сервере клиента, работающий поверх установленного Docker Engine (≥ 24) или containerd (≥ 1.7) с плагином Compose v2. Организация ставит один пакет — Docker Engine должен быть установлен и работать до запуска апплайанса.
 
-- **Состав поставки (installer):** Go-демон; локальный CLI и web-UI; systemd-юниты (жизненный цикл демона, запуск enrollment при первом старте). Installer проверяет наличие и версию Docker Engine; при несоответствии завершается с диагностикой.
+- **Состав поставки (installer):** **Персонализированный** подписанный архив: Go-демон + enrollment-токен (вшит при генерации в Dashboard, не передаётся в открытом виде отдельно) + локальный CLI и web-UI + systemd-юниты (жизненный цикл демона). Installer проверяет наличие и версию Docker Engine; при несоответствии завершается с диагностикой. Enrollment запускается автоматически при первом старте — вводить токен вручную не нужно.
 - **Предусловия на хосте:** поддерживаемый Linux (x86_64/arm64), systemd, root для установки, **Docker Engine ≥ 24 (или containerd ≥ 1.7 + плагин Compose v2)**, запущенный Docker socket (`/var/run/docker.sock`).
 - **Компоненты демона:**
   - `Enrollment` — token → CSR → получение mTLS-идентичности и robot-кредов Harbor (`S1`).
   - `RuntimeManager` — проверка версии и доступности Docker socket; управление compose-проектами через Docker API.
-  - `CatalogPoller` — по локальному расписанию опрашивает `GET /v1/products`, кэширует доступные продукты, версии и релиз-ноуты (`S4`).
+  - `CleanupManager` — при переходе гранта в `Expired`/`Revoked` или при фиксации `HardStop` лиза вызывает `docker image rm` для всех образов соответствующего продукта. Исключает запуск кэшированных образов в обход агента после утраты права (§3.9).
+  - `CatalogPoller` — по локальному расписанию опрашивает `GET /v1/products`, кэширует доступные продукты, версии и релиз-ноуты (`S4`). Обнаружение исчезнувшего гранта (продукт пропал из ответа) — сигнал для `CleanupManager`.
   - `LocalUI` — локальный web-UI/CLI: показывает доступное и релиз-ноуты, принимает локальный конфиг и **ручной запуск** установки/обновления/удаления (`B5`, `S4`).
   - `Installer` — render compose из шаблона + локальный конфиг (`S5`), `compose pull` по digest, `compose up -d`, health-check.
   - `Verifier` — `cosign verify` и pin по digest перед запуском (`B6`, §3.6).
@@ -661,10 +663,10 @@ sequenceDiagram
     participant Ag as Агент-апплайанс
 
     Op->>FLEET: POST /agents {tenantId, hostname}
-    FLEET-->>Op: {agentId, enrollmentToken (короткий TTL), ссылка на установщик}
-    Op-->>Adm: передать installer + токен
-    Adm->>Ag: установить апплайанс, ввести токен
-    Ag->>Ag: установщик поднимает встроенный Docker Engine + systemd-юниты
+    FLEET-->>Op: персонализированный installer (подписанный архив, токен вшит)
+    Op-->>Adm: передать персонализированный installer
+    Adm->>Ag: установить апплайанс (токен считывается из архива автоматически)
+    Ag->>Ag: установщик разворачивает демон + systemd-юниты, запускает enrollment
     Ag->>FLEET: POST /v1/enroll {token, CSR}
     FLEET->>FLEET: валидировать токен (Issued, не истёк) → Used
     FLEET->>VAULT: подписать CSR (issue cert, привязка agent/tenant)
@@ -952,7 +954,7 @@ TTL лиза, **длительность льготного периода (гр
 
 ## 3.5 Многоарендность и изоляция
 - Изоляция данных — на уровне tenant в каждом сервисе (владение данными — §2.3); запросы агента ограничены его tenant (инвариант §1.11.4).
-- **Реестр (Harbor):** на каждый tenant — robot-аккаунты со scope только на продукты, разрешённые грантами (§3.7). Агент не может вытянуть образ продукта, на который у организации нет гранта.
+- **Реестр (Harbor):** на каждый tenant — robot-аккаунты со scope только на продукты, разрешённые грантами (§3.7). Агент не может вытянуть образ продукта, на который у организации нет гранта. При истечении или отзыве гранта fleet-service **автоматически** сужает scope robot-аккаунта — убирает репозиторий отозванного продукта; pull новых образов этого продукта становится невозможен немедленно. Уже скачанные образы удаляются агентом через `CleanupManager` (§2.8).
 - Проверка действительности гранта выполняется в entitlement-service при формировании списка доступного (`S4`).
 
 ## 3.6 Целостность и происхождение поставки (supply-chain security)
@@ -989,13 +991,14 @@ TTL лиза, **длительность льготного периода (гр
 
 | Угроза | Контрмера | Где |
 | --- | --- | --- |
-| Несанкц. подключение агента | Одноразовый enrollment-токен (короткий TTL) + выдача mTLS | §2.9 `S1`, §3.2 |
+| Несанкц. подключение агента | Одноразовый enrollment-токен (короткий TTL) вшит в персонализированный подписанный installer — не передаётся в открытом виде отдельно | §2.9 `S1`, §3.2 |
 | Перехват/подмена трафика | mTLS агент↔CP, TLS до Harbor, mesh-mTLS внутри кластера | §2.4, §3.2 |
 | Подмена образа | cosign verify на агенте, pin по digest | §3.6 |
 | **Обход лицензирования: запуск образов напрямую мимо агента** | **License Module: рантайм-проверка подписанного короткоживущего лиза; без продления → `HardStop` после грейса. Лиз выдаётся только под действующий грант через агента** | **§2.15, `S7`, §3.7** |
 | Перенос/replay лиза на другую инсталляцию | Бинд лиза к `agentId`/`tenantId` (+ опц. `bindingFingerprint`), короткий TTL, `jti`/deny-list | §3.3, §2.15 |
 | Снятие проверки лицензии (root, патч бинаря) | SDK в каждом сервисе + обфускация + self-integrity-check + cosign образов; вынос критичной логики в SaaS — остаточный риск признан | §2.15 |
-| Доступ к чужим продуктам | Robot-аккаунты Harbor по scope tenant + проверка грантов | §3.5 |
+| Доступ к чужим продуктам | Robot-аккаунты Harbor по scope tenant + проверка грантов; scope автоматически сужается при Expired/Revoked | §3.5 |
+| Запуск кэшированных образов после HardStop/отзыва гранта | `CleanupManager` агента: `docker image rm` при переходе в HardStop или при исчезновении гранта; отзыв Harbor scope исключает pull новых образов | §2.8, §3.5 |
 | Утечка секретов | Vault at-rest, ротация; локальный конфиг продукта — на стороне организации | §3.4 |
 | Превышение прав агента | Cert привязан к agent/tenant; агент управляет только своими compose-проектами | §3.2, §3.5 |
 | Кража токена агента | Cert-bound токен (`cnf`), короткий TTL | §3.3 |
